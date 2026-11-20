@@ -1,0 +1,32 @@
+{
+  "trace_id": "tr_8f3c21d9a04e",
+  "agent": "card-dispute-triage",
+  "agent_version": "3.2.0",
+  "case_id": "DSP-2026-04417",
+  "started_at": "2026-01-06T15:42:10Z",
+  "note": "Demo trace written by CasePatch. The three documents are real public samples about unrelated specimen identities; this trace links them into one dispute for demonstration.",
+  "input": {
+    "channel": "web_form",
+    "customer": {"name": "Susan Doe", "account_number": "12345-67-8907"},
+    "message": "There is a VISA charge from Auntie Anne's I don't recognise. I was not there. Please reverse it.",
+    "attachments": ["01_card_statement.pdf", "02_receipt_photo.jpg", "03_id_card_photo.jpg"]
+  },
+  "steps": [
+    {"type": "tool_call", "tool": "get_account", "arguments": {"account_number": "12345-67-8907"},
+     "output": {"customer_name": "Susan Doe", "address": "1234 Main Street, Anytown, USA", "account_number": "12345-67-8907",
+                "status": "open", "credit_access_line": "$12,000", "new_balance": "$1,392.71"}},
+    {"type": "tool_call", "tool": "read_document", "arguments": {"file": "01_card_statement.pdf"},
+     "output": {"customer_name": "Susan Doe", "statement_period": "11/27/XX - 12/26/XX", "purchases": "$1,258.56",
+                "new_balance": "$1,392.71", "minimum_payment": "$25", "payment_due": "1/23/XX"}},
+    {"type": "tool_call", "tool": "read_document", "arguments": {"file": "02_receipt_photo.jpg"},
+     "output": {"merchant": "Auntie Anne's", "items": ["STIX ECLAIRS", "ALMOND CREAM CHEESE"], "grand_total": "47,000",
+                "tender": "VISA"}},
+    {"type": "tool_call", "tool": "verify_identity_document", "arguments": {"file": "03_id_card_photo.jpg"},
+     "output": {"document_type": "national_id_card", "issuing_country": "ALB", "full_name": "Monika Sojli",
+                "date_of_birth": "01-01-1980", "record_id": "I05101999Q", "date_of_expiry": "15-06-2014",
+                "matches_account_holder": false, "expired": true}},
+    {"type": "llm", "model": "triage-model",
+     "output": "Susan Doe disputes a VISA charge of 47,000 at Auntie Anne's. The receipt total does not appear among the statement purchases ($1,258.56). The ID presented at the counter belongs to Monika Sojli, not the account holder, and expired on 15-06-2014. Recommend: provisional credit and escalate as suspected card misuse."}
+  ],
+  "decision": {"action": "provisional_credit_and_escalate", "reason_codes": ["id_does_not_match_account_holder", "id_expired", "charge_not_on_statement"]}
+}

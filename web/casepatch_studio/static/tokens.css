@@ -1,0 +1,159 @@
+/* CasePatch design tokens. No runtime network; fonts are vendored next to this file. */
+@font-face {
+  font-family: Inter;
+  src: url("fonts/inter-latin-var.woff2") format("woff2-variations"),
+       url("fonts/inter-latin-var.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: Inter;
+  src: url("fonts/inter-latin-var-italic.woff2") format("woff2-variations"),
+       url("fonts/inter-latin-var-italic.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+:root {
+  color-scheme: light dark;
+
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-md: 0.875rem;
+  --text-lg: 1rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  --text-3xl: 1.875rem;
+  --leading-tight: 1.25;
+  --leading-snug: 1.4;
+  --leading-body: 1.55;
+  --tracking-tight: -0.022em;
+  --tracking-label: 0.04em;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-pill: 999px;
+
+  --shadow-sm: 0 1px 2px rgba(15, 17, 21, 0.05);
+  --shadow-md: 0 4px 16px rgba(15, 17, 21, 0.08), 0 1px 2px rgba(15, 17, 21, 0.04);
+  --shadow-lg: 0 16px 40px rgba(15, 17, 21, 0.14);
+
+  --ease: 150ms cubic-bezier(0.2, 0, 0, 1);
+  --ease-out: 200ms cubic-bezier(0.16, 1, 0.3, 1);
+
+  --focus: 0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-accent);
+
+  /* Light (default). Contrast targets WCAG AA for text and UI components. */
+  --color-bg: #f6f6f4;
+  --color-bg-subtle: #eeeee9;
+  --color-surface: #ffffff;
+  --color-surface-hover: #f3f3f0;
+  --color-text: #14151a;
+  --color-text-secondary: #4a4d57;
+  --color-text-tertiary: #6b6f7a;
+  --color-border: #e6e6e1;
+  --color-border-strong: #d0d0ca;
+  --color-accent: #3b46e0;
+  --color-accent-hover: #2f39c9;
+  --color-accent-text: #ffffff;
+  --color-accent-soft: #eef0ff;
+  --color-accent-border: #c9cefb;
+  --color-success: #0b7a45;
+  --color-success-text: #0b7a45;
+  --color-success-bg: #e6f6ed;
+  --color-success-border: #b7e0c7;
+  --color-warning: #8a5a00;
+  --color-warning-text: #8a5a00;
+  --color-warning-bg: #fff6db;
+  --color-warning-border: #efd48a;
+  --color-danger: #b42318;
+  --color-danger-text: #b42318;
+  --color-danger-bg: #fef3f2;
+  --color-danger-border: #f2c4c0;
+  --color-shell: #ffffff;
+  --color-shell-border: #e6e6e1;
+  --color-overlay: rgba(15, 17, 21, 0.45);
+  --color-code-bg: #111318;
+  --color-code-text: #f2f3f7;
+
+  --reg-hipaa-bg: #e6f4f1;
+  --reg-hipaa-text: #0c5c52;
+  --reg-pci-bg: #fdecef;
+  --reg-pci-text: #9b1c3a;
+  --reg-gdpr-bg: #eef0ff;
+  --reg-gdpr-text: #2f39c9;
+  --reg-glba-bg: #fff3e0;
+  --reg-glba-text: #8a4b00;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #0e0f12;
+    --color-bg-subtle: #16181d;
+    --color-surface: #16181d;
+    --color-surface-hover: #1e2128;
+    --color-text: #f3f3f4;
+    --color-text-secondary: #c2c5ce;
+    --color-text-tertiary: #9aa0ac;
+    --color-border: #2a2d34;
+    --color-border-strong: #3a3e48;
+    --color-accent: #8b93ff;
+    --color-accent-hover: #a7acff;
+    --color-accent-text: #111318;
+    --color-accent-soft: #1c2150;
+    --color-accent-border: #3a43a8;
+    --color-success: #3dd68c;
+    --color-success-text: #7aecc0;
+    --color-success-bg: #0e2a1c;
+    --color-success-border: #1d5a38;
+    --color-warning: #f0c14a;
+    --color-warning-text: #f0c14a;
+    --color-warning-bg: #2c2208;
+    --color-warning-border: #6a5314;
+    --color-danger: #ff8a80;
+    --color-danger-text: #ffb4ae;
+    --color-danger-bg: #2c1412;
+    --color-danger-border: #7a2e28;
+    --color-shell: #12141a;
+    --color-shell-border: #2a2d34;
+    --color-overlay: rgba(0, 0, 0, 0.6);
+    --color-code-bg: #090a0d;
+    --color-code-text: #e8e9ee;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 20px 48px rgba(0, 0, 0, 0.5);
+    --reg-hipaa-bg: #0e2a26;
+    --reg-hipaa-text: #7ad4c6;
+    --reg-pci-bg: #2c1418;
+    --reg-pci-text: #ff9aaf;
+    --reg-gdpr-bg: #1c2150;
+    --reg-gdpr-text: #b4b8ff;
+    --reg-glba-bg: #2c2208;
+    --reg-glba-text: #f0c14a;
+  }
+}
+
+html { color-scheme: light dark; }
+@media (prefers-reduced-motion: reduce) {
+  :root { --ease: 0ms; --ease-out: 0ms; }
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}

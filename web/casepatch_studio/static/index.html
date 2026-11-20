@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CasePatch Studio</title>
+<link rel="stylesheet" href="/static/tokens.css">
+<link rel="stylesheet" href="/static/components.css">
+<link rel="stylesheet" href="/static/styles.css">
+<script src="/static/compare.js" defer></script>
+<script src="/static/app.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<div class="app">
+<aside class="shell" aria-label="CasePatch Studio">
+  <div class="shell-brand"><div class="brand">CasePatch <span>Studio</span></div></div>
+  <ol class="steps" id="steps"><li data-step="add">1 Add files</li><li data-step="run">2 Analyze</li><li data-step="review">3 Review</li><li data-step="export">4 Export</li></ol>
+  <div class="shell-foot">
+    <div class="mode" id="mode" title="Local mode: the app and all processing run on this computer. No cloud calls.">Local mode</div>
+    <nav><button class="link" id="btn-usage">Usage &amp; privacy</button><button class="link" id="btn-help">How it works</button></nav>
+  </div>
+</aside>
+<div class="workspace">
+<main id="content">
+  <section id="screen-add" class="screen">
+    <p id="asset-warning" class="error hidden" role="alert"></p>
+    <h1>Make a realistic synthetic copy of a document case</h1>
+    <p class="lede">Add the files of one case: native or scanned PDFs, phone photos, ID images, and the agent's JSON, JSONL or text traces (transcripts, tool calls, expected outputs). CasePatch finds names, numbers, addresses, faces, signatures and codes, replaces them <em>in place</em> with consistent synthetic values across every file, keeps amounts and dates, and checks the result. You review every page before anything is exported.</p>
+    <div id="drop" class="drop" tabindex="0">
+      <p><strong>Drop files here</strong> or</p>
+      <label class="button primary">Choose files<input id="file-input" type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff,.json,.jsonl,.ndjson,.txt" hidden></label>
+      <p class="muted" id="limits"></p>
+    </div>
+    <p class="or">No documents handy? <button class="button" id="btn-sample">Try the example case</button> <span class="muted">(a card dispute: credit-card statement PDF, receipt photo, photo of an ID card on a desk, agent trace)</span></p>
+    <p class="or hidden" id="compare-entry">Want to try the picker first? <button class="button" id="btn-open-compare">Compare editors on public samples</button> <span class="muted">(precomputed outputs, no live model calls, no upload)</span></p>
+    <p class="muted small credits">Example documents are real public samples with specimen identities: CFPB “Building Blocks” sample credit-card statement (US government work, public domain); receipt from CORD v2, Park et al. (CC BY 4.0); Albanian ID specimen from MIDV-500, Arlazarov et al. 2019 (CC BY-SA 2.5 — outputs made from it are shared under the same license). The agent trace is written by us and ties them into one demo dispute.</p>
+    <div id="file-list" class="file-list hidden"><h2>Files in this case</h2><ul id="files"></ul>
+      <details class="cat-box" id="cat-box"><summary><strong>Health and sensitive details</strong> <span class="muted" id="cat-summary"></span></summary>
+        <p class="muted small">Names, ID and account numbers, addresses and contact details are always replaced. For the content below, choose what your eval needs: <em>Replace</em> swaps in a different term of the same kind (a condition for another condition); <em>Keep</em> leaves it unchanged and flags it on the review screen. Free text CasePatch has no realistic substitute for stays unchanged and flagged either way.</p>
+        <div class="cat-rows" id="cat-rows"></div></details>
+      <div class="hosted-box hidden" id="hosted-box">
+        <label class="toggle"><input type="checkbox" id="hosted-on"> <strong>Also use hosted detection</strong> <span class="muted">(<span id="hosted-model"></span>, optional, off by default)</span></label>
+        <p class="muted small" id="hosted-reason"></p>
+        <div class="hosted-key" id="hosted-key"><label for="hosted-key-input" class="small">Your Anthropic API key (bring your own key; kept in memory on this computer, never shown again)</label>
+          <div class="hosted-key-row"><input type="password" id="hosted-key-input" autocomplete="off" spellcheck="false" placeholder="sk-ant-…">
+            <label class="toggle small hidden" id="hosted-remember-wrap"><input type="checkbox" id="hosted-remember"> Remember in this computer's keychain</label>
+            <button class="button" id="btn-hosted-key">Use my key</button><button class="button hidden" id="btn-hosted-forget">Forget key</button></div></div>
+        <div class="hosted-notice hidden" id="hosted-notice" role="alert"><p id="hosted-notice-text"></p>
+          <label class="toggle"><input type="checkbox" id="hosted-ack"> I understand that page images and their text will be sent to Anthropic for this case.</label></div>
+      </div>
+
+      <div class="hosted-edit-box hidden" id="hosted-edit-box">
+        <label class="toggle"><input type="checkbox" id="hosted-edit-on"> <strong>Also compare hosted image editors</strong>
+          <span class="muted">(Ideogram 4.5, Nano Banana Pro, Qwen inpaint · optional, off by default · your own Fal key)</span></label>
+        <p class="muted small" id="hosted-edit-reason"></p>
+        <div class="hosted-key" id="hosted-edit-key"><label for="hosted-edit-key-input" class="small">Your Fal API key (bring your own key; kept in memory on this computer, never shown again). Hosted editors run only after you opt in per document and accept an estimated cost, and never through CasePatch servers.</label>
+          <div class="hosted-key-row"><input type="password" id="hosted-edit-key-input" autocomplete="off" spellcheck="false" placeholder="id:secret">
+            <button class="button" id="btn-hosted-edit-key">Use my key</button><button class="button hidden" id="btn-hosted-edit-forget">Forget key</button></div></div>
+        <p class="muted small">Hosted editors never run through CasePatch servers, and CasePatch evaluation keys are refused. The local editor stays the default pick.</p>
+      </div>
+      <div class="actions"><button class="button" id="btn-reset">Start over</button><button class="button primary" id="btn-analyze">Analyze case</button></div></div>
+    <p class="note">Use documents you are allowed to process. In local mode nothing is uploaded anywhere: “upload” only copies files into a private folder on this computer, deleted when you delete the case, after 2 hours idle, or when the app stops.</p>
+  </section>
+
+  <section id="screen-run" class="screen hidden">
+    <div class="spinner" aria-hidden="true"></div>
+    <h1 id="run-title">Analyzing your case…</h1>
+    <p id="run-elapsed" class="lede"></p>
+    <p class="muted">Reading text layers and pixels (OCR), finding sensitive values and visual regions, building one case-wide identity map, rendering fresh files and re-scanning them independently. Typical time: about 10 seconds per page on an 8-core laptop CPU; the first run loads local models.</p>
+  </section>
+
+  <section id="screen-review" class="screen hidden">
+    <div class="review-bar">
+      <div id="summary"></div>
+      <div class="actions"><span id="dirty" class="dirty hidden">Unapplied changes</span>
+        <button class="button" id="btn-apply" disabled>Apply changes &amp; re-render</button>
+        <button class="button primary" id="btn-to-export">Continue to export</button></div>
+    </div>
+    <details class="case-map" id="case-map"><summary><strong>Case summary: who becomes whom</strong><span class="muted" id="case-map-count"></span></summary>
+      <p class="muted small">One identity map for the whole case: the same original value gets the same replacement in every file.</p>
+      <div id="case-map-body"></div></details>
+    <details class="case-map cat-box" id="cat-box-review"><summary><strong>Health and sensitive details</strong> <span class="muted" id="cat-summary-review"></span></summary>
+      <p class="muted small">Names, ID and account numbers, addresses and contact details are always replaced. For the content below, choose what your eval needs: <em>Replace</em> swaps in a different term of the same kind (a condition for another condition); <em>Keep</em> leaves it unchanged and flags it on the review screen. Free text CasePatch has no realistic substitute for stays unchanged and flagged either way. Changes apply when you click “Apply changes &amp; re-render”.</p>
+      <div class="cat-rows" id="cat-rows-review"></div></details>
+    <div class="review">
+      <aside class="pages"><h2>Pages</h2><ul id="page-list"></ul><p class="muted" id="viewed"></p></aside>
+      <div class="viewer">
+        <div class="viewer-head"><h2 id="page-title"></h2>
+          <div class="view-tools" id="view-tools">
+            <label class="toggle" title="Zoom to the document found on this photo"><input type="checkbox" id="crop-doc" checked> Crop to document</label>
+            <span class="zoom"><button class="button tiny" id="zoom-out" title="Zoom out">−</button><span id="zoom-level" class="muted small">100%</span><button class="button tiny" id="zoom-in" title="Zoom in">+</button><button class="button tiny" id="zoom-fit" title="Fit">Fit</button></span>
+            <label class="toggle"><input type="checkbox" id="magnifier"> Magnifier</label>
+            <select id="view-mode" title="How to compare"><option value="side">Side by side</option><option value="changes">Highlight changes</option><option value="flicker">Flicker before/after</option></select>
+            <label class="toggle"><input type="checkbox" id="show-boxes" checked> Show boxes</label>
+          </div></div>
+        <p class="muted small hint-zoom">Click to zoom in (Shift-click out), scroll to zoom, drag to pan. Both sides move together.</p>
+        <div class="pair" id="pair">
+          <figure><figcaption>Before (your file)</figcaption><div class="frame" id="before"></div></figure>
+          <figure><figcaption id="after-cap">After (CasePatch output)</figcaption><div class="frame" id="after"></div></figure>
+        </div>
+        <div id="review-hosted-edit" class="review-hosted hidden">
+          <h2>Hosted image editors</h2>
+          <p class="muted small" id="review-hosted-notice"></p>
+          <label class="toggle"><input type="checkbox" id="review-hosted-ack"> I understand these run with my own Fal key, off by default, never through CasePatch servers, and only on the documents I select.</label>
+          <div id="review-hosted-docs" class="review-hosted-docs"></div>
+          <div class="actions">
+            <button class="button" type="button" id="btn-hosted-estimate">Estimate cost</button>
+            <span id="review-hosted-estimate" class="muted"></span>
+            <button class="button primary" type="button" id="btn-hosted-run" disabled>Run hosted editors</button>
+          </div>
+          <p class="muted small" id="review-hosted-status"></p>
+        </div>
+        <div id="review-compare" class="hidden"></div>
+        <div id="review-agent" class="review-hosted hidden">
+          <h2>Agent mode <span class="muted small" id="agent-state"></span></h2>
+          <p class="muted small" id="agent-notice"></p>
+          <div id="agent-start">
+            <label class="toggle"><input type="checkbox" id="agent-ack"> I understand agent mode uses my own Anthropic key, is off by default, never goes through CasePatch servers, and is for this case only.</label>
+            <label class="toggle"><input type="checkbox" id="agent-faces"> Swap faces in photos (otherwise photos are flagged for review)</label>
+            <div class="actions"><button class="button primary" type="button" id="btn-agent-run" disabled>Run agent mode</button></div>
+          </div>
+          <h3 class="small">Open review items <span id="agent-item-count"></span></h3>
+          <ul id="agent-items" class="agent-items"></ul>
+          <h3 class="small">Agent edits</h3>
+          <div id="agent-changes" class="agent-changes"></div>
+          <div class="actions"><button class="button" type="button" id="btn-agent-export" disabled>Export agent result</button></div>
+        </div>
+      </div>
+      <aside class="items">
+        <h2>On this page</h2>
+        <div id="items"></div>
+        <details class="add" id="add-box"><summary>Add a value CasePatch missed</summary>
+          <p class="hint hidden" id="add-hint"></p>
+          <p class="muted">Type it exactly as it appears. It will be replaced everywhere in the case.</p>
+          <input id="add-text" placeholder="e.g. Janet Q. Example" maxlength="200">
+          <select id="add-kind"><option value="PERSON">PERSON (full name)</option><option value="GIVEN">First name only</option><option value="SURNAME">Surname only</option><option>ADDRESS</option><option>PHONE</option><option>EMAIL</option><option>ID</option><option>ACCOUNT</option><option>CARD</option><option>DOB</option><option>ZIP</option><option>ORG</option></select>
+          <button class="button" id="btn-add">Add</button>
+          <ul id="add-list"></ul>
+        </details>
+      </aside>
+    </div>
+  </section>
+
+  <section id="screen-export" class="screen hidden">
+    <h1>Export the reviewed case</h1>
+    <p class="lede">The ZIP contains the transformed files, the verification report and a count of your review decisions. It does not contain your original files, the original values, the identity map or the case key.</p>
+    <h2>Verification</h2>
+    <table class="verify" id="verify"></table>
+    <h2>Still needs a human look <span class="muted" id="nr-count"></span></h2>
+    <ul id="needs-review" class="needs"></ul>
+    <label class="confirm"><input type="checkbox" id="confirm"> I reviewed every output page. I understand detection can miss data and that this is not a certification of anonymity.</label>
+    <div class="actions"><button class="button" id="btn-back">Back to review</button><button class="button primary" id="btn-export" disabled>Download ZIP</button></div>
+    <div id="exported" class="exported hidden"><p><strong>Exported.</strong> Your download contains the synthetic case.</p>
+      <button class="button" id="btn-new">Start a new case</button> <button class="button danger" id="btn-delete">Delete this case from this computer</button></div>
+  </section>
+
+  <section id="screen-compare" class="screen hidden">
+    <h1>Compare editors and pick per change</h1>
+    <p class="lede">Each change shows the original crop and one candidate per editor. The local editor is selected by default. Hosted candidates here are precomputed on public samples — no live model calls are made. A candidate that still shows the original text is a leak and cannot be selected without an explicit override. Export pastes only the chosen crop, and only inside the mask.</p>
+    <div id="cmp-mount"></div>
+    <div class="actions">
+      <button class="button" id="btn-cmp-back">Back</button>
+      <button class="button primary" id="btn-cmp-export">Export with these picks</button>
+    </div>
+    <div id="cmp-exported" class="exported hidden"><p><strong>Exported.</strong> The ZIP has the pages with your chosen editors applied, and a review log of which editor was used for each change (no source identity map).</p></div>
+  </section>
+  <p id="error" class="error hidden" role="alert"></p>
+</main>
+</div>
+</div>
+
+<dialog id="dlg-usage"><form method="dialog"><h2>Usage &amp; privacy</h2>
+  <p>Local usage counters, stored in <code id="usage-file">~/.casepatch/usage.sqlite</code> on this computer and never sent. They hold per-day numbers only (cases, documents, pages, re-renders, exports, processing seconds): no file names, text, values or paths. Reset counters empties them; deleting the file is also fine. Set <code>CASEPATCH_HOME</code> to keep this folder elsewhere.</p>
+  <table id="usage"></table>
+  <h3>Anonymous usage events <span id="tele-state" class="pill"></span></h3>
+  <p>Off by default. If you opt in, CasePatch records events like “case analyzed: 6 pages” or “reviewed export completed” with a random install id — never file names, document text, values or paths. They are kept in <code id="events-file">~/.casepatch/events.jsonl</code>. <strong>This build cannot send them anywhere</strong>: sending needs a telemetry endpoint the project has not enabled yet.</p>
+  <label class="toggle"><input type="checkbox" id="tele"> Record anonymous usage events on this computer</label>
+  <details><summary>Show exactly what is recorded</summary><pre id="events"></pre></details>
+  <div class="actions"><button class="button" id="btn-reset-usage" value="reset">Reset counters</button><button class="button primary" value="close">Close</button></div>
+</form></dialog>
+
+<dialog id="dlg-help"><form method="dialog"><h2>How CasePatch works</h2>
+  <ol><li><strong>Add</strong> the files of one case. Files are processed together so one person gets one synthetic identity in every file.</li>
+  <li><strong>Analyze</strong>: text layers and OCR, rules-based detection with case-wide propagation, face/signature/QR/barcode detection.</li>
+  <li><strong>Review</strong>: compare before/after for every page. Keep values that are not sensitive, add values that were missed, choose what happens to each face, signature or code, then re-render. When several editors are available, pick one per change (or use one editor for all); boxes mark every change on the full page.</li>
+  <li><strong>Export</strong>: you must open every output page and confirm before downloading.</li></ol>
+  <p>Amounts, dates and other facts are kept unless you select them. Text is redrawn in the document's own font on native PDFs; scans and photos are inpainted and redrawn to match. Faces, signatures and codes are replaced with synthetic ones.</p>
+  <p><strong>Agent mode</strong> (optional, off by default): after analysis, an AI agent can make the edits with CasePatch's tools and checks, using <em>your own</em> Anthropic key, for one case at a time, after you accept a notice. You then keep or undo each agent edit, and every flagged item needs your decision before export.</p>
+  <p class="muted">Limits: early alpha. Detection can miss data; handwriting other than signatures is not detected; replaced text on low-quality scans can look cleaner than the original. Not a HIPAA/PCI de-identification tool.</p>
+  <div class="actions"><label class="toggle small muted"><input type="checkbox" id="help-again"> Show this at every start</label> <button class="button primary" value="close">Close</button></div>
+</form></dialog>
+</body>
+</html>

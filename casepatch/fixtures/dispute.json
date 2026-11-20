@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "data_class": "synthetic",
+  "scope": "demo-dispute-001",
+  "entities": [
+    {"id":"member","kind":"PERSON","aliases":[{"value":"Mara Voss","form":"full"},{"value":"M. Voss","form":"initial"}]},
+    {"id":"other_signer","kind":"PERSON","aliases":[{"value":"Jonah Pike","form":"full"}]},
+    {"id":"email","kind":"EMAIL","aliases":[{"value":"mara.voss@example.invalid"}]},
+    {"id":"account","kind":"ID","aliases":[{"value":"ACCT-DEMO-7241"}]},
+    {"id":"card","kind":"CARD","aliases":[{"value":"CARD-DEMO-5308"}]}
+  ],
+  "records": [
+    {"record_id":"crm-demo","customer_name":"Mara Voss","email":"mara.voss@example.invalid","account":"ACCT-DEMO-7241","opened_at":"2026-04-06T09:00:00Z"},
+    {"record_id":"claim-demo","claimant_name":"Mara Voss","account":"ACCT-DEMO-7241","card":"CARD-DEMO-5308","received_at":"2026-04-08T09:00:00Z","amount":247.81,"currency":"USD","customer_statement":"I, M. Voss, did not authorize this purchase. Please email mara.voss@example.invalid."},
+    {"record_id":"receipt-demo","signer_name":"Jonah Pike","card":"CARD-DEMO-5308","amount":247.81,"purchase_at":"2026-04-06T09:00:00Z","extracted_text":"Signer: Jonah Pike. Card: CARD-DEMO-5308. Purchase: 2026-04-06T09:00:00Z. Total: USD 247.81."},
+    {"record_id":"call-demo","transcript":"Mara Voss called about ACCT-DEMO-7241. The card record and receipt refer to CARD-DEMO-5308. The receipt names Jonah Pike; do not assume this proves fraud."}
+  ],
+  "date_paths": [[0,"opened_at"],[1,"received_at"],[2,"purchase_at"]],
+  "invariants": [
+    {"id":"same-claimant","op":"equal","left":[0,"customer_name"],"right":[1,"claimant_name"]},
+    {"id":"genuine-name-mismatch","op":"equal","left":[0,"customer_name"],"right":[2,"signer_name"]},
+    {"id":"same-account","op":"equal","left":[0,"account"],"right":[1,"account"]},
+    {"id":"same-card","op":"equal","left":[1,"card"],"right":[2,"card"]},
+    {"id":"same-amount","op":"equal","left":[1,"amount"],"right":[2,"amount"]},
+    {"id":"amount-unchanged","op":"unchanged","path":[1,"amount"]},
+    {"id":"currency-unchanged","op":"unchanged","path":[1,"currency"]},
+    {"id":"claim-time-gap","op":"seconds_between","left":[2,"purchase_at"],"right":[1,"received_at"]}
+  ]
+}

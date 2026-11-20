@@ -1,0 +1,28 @@
+{
+  "note": "The detector propagates full names it finds in the trace, but this ID card prints the surname and given name on separate lines, and OCR reads the personal number's leading I as 1. The synthetic signature is drawn larger than the faint original, so this example erases it instead.",
+  "add": [
+    {
+      "text": "Sojli",
+      "kind": "SURNAME"
+    },
+    {
+      "text": "Monika",
+      "kind": "GIVEN"
+    },
+    {
+      "text": "200000907",
+      "kind": "ID"
+    },
+    {
+      "text": "105101999Q",
+      "kind": "ID"
+    }
+  ],
+  "regions": [
+    {
+      "doc": "document-03",
+      "kind": "signature",
+      "action": "erase"
+    }
+  ]
+}

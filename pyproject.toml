@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "casepatch"
+version = "0.6.1"
+description = "Production data anonymization for AI agent evals: replace identities in PDFs and images, locally or via the CasePatch API"
+readme = "sdk/python/README.md"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+authors = [{ name = "CasePatch", email = "support@casepatch.com" }]
+maintainers = [{ name = "CasePatch", email = "support@casepatch.com" }]
+keywords = ["anonymization", "pii", "redaction", "evals", "ai-agents", "synthetic-data", "pdf"]
+classifiers = ["Development Status :: 3 - Alpha", "Programming Language :: Python :: 3", "Typing :: Typed",
+               "Intended Audience :: Developers", "Topic :: Security"]
+# the core install is the cloud client (standard library only); `casepatch[local]` adds the in-process engine
+dependencies = []
+
+[project.urls]
+Homepage = "https://casepatch.com"
+
+[project.optional-dependencies]
+ner = ["spacy>=3.8,<3.9"]
+docs = ["pymupdf>=1.24", "pillow>=10", "numpy>=1.26", "opencv-python-headless>=4.9", "rapidocr>=3.0", "onnxruntime>=1.17"]
+docs-gliner = ["gliner>=0.2.13"]
+docs-llm = ["llama-cpp-python>=0.3"]
+fixtures = ["qrcode>=7"]
+local = ["pymupdf>=1.24", "pillow>=10", "numpy>=1.26", "opencv-python-headless>=4.9", "rapidocr>=3.0", "onnxruntime>=1.17", "segno>=1.6", "zxing-cpp>=2.2", "fonttools>=4.50"]
+# adds LaMa inpainting for scans/photos (torch; on Linux use the CPU wheel index to avoid ~3 GB of CUDA packages)
+local-hq = ["casepatch[local]", "torch>=2.2"]
+studio = ["pymupdf>=1.24", "pillow>=10", "numpy>=1.26", "opencv-python-headless>=4.9", "rapidocr>=3.0", "onnxruntime>=1.17", "torch>=2.2", "segno>=1.6", "zxing-cpp>=2.2", "fonttools>=4.50"]
+
+[project.scripts]
+casepatch = "casepatch.__main__:main"
+casepatch-studio = "casepatch_studio.__main__:main"
+
+[tool.setuptools.packages.find]
+where = [".", "web"]
+include = ["casepatch*"]
+
+[tool.setuptools.package-data]
+casepatch = ["py.typed", "fonts/*", "fixtures/*.json", "web/*.html", "web/*.css", "web/*.js", "docs/data/*.txt", "docs/data/*.json", "docs/data/*.md"]
+# keys are package names: Studio's UI, fonts, example case and name list ship inside casepatch_studio
+casepatch_studio = ["static/*", "static/fonts/*", "sample/*", "names.json"]

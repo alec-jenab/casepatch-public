@@ -1,0 +1,11 @@
+{
+ "note": "Salted SHA-256 fingerprints (first 128 bits) of CasePatch evaluation keys. These keys may only be used on public samples; the product refuses them. Never the keys themselves.",
+ "fingerprints": [
+  "2b6f7f2b4f81ab0d79463be8d42a778a",
+  "52c876b474344d02daa247f99231158e",
+  "5351698203d46c95f17e9fe70a902621",
+  "6f3e5140e2bdc4f7318b7b604cac98eb",
+  "73f1bf68059d0873158607050df5efe5",
+  "aad1f5d4590a3b77195e658ff583e4a3"
+ ]
+}

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>CasePatch · Local review</title><link rel="stylesheet" href="styles.css"><script defer src="json-import.js"></script><script defer src="app.js"></script></head>
+<body><main>
+<header><div><p class="eyebrow">EARLY ALPHA · LOCAL PROCESSING</p><h1>CasePatch</h1><p>Turn linked records into consistent eval cases.</p></div><button id="clear" class="quiet">Clear case</button></header>
+<p id="model" class="notice" role="status">Loading local detector…</p>
+<p id="operation" role="status" aria-live="polite" hidden></p>
+<p id="error" class="error" role="alert" hidden></p>
+<section aria-labelledby="import-title"><h2 id="import-title">1. Import a case</h2><p>Add related documents together. CasePatch keeps replacements consistent across them.</p>
+<div class="actions"><label class="file-button">Add files<input id="files" type="file" multiple accept=".txt,.json,.jsonl,text/plain,application/json"></label><button id="example" class="quiet">Try fictional dispute</button><span class="muted">Text, JSON, or JSONL · 250,000 text characters per case</span></div>
+<label for="paste">Or paste text</label><textarea id="paste" rows="5" placeholder="Paste a trace, document text, or message…"></textarea>
+<div class="actions"><button id="add-paste" class="quiet">Add text</button><span id="document-count" class="muted">No documents added.</span></div>
+<ul id="documents" class="document-list"></ul><button id="analyze" disabled>Find sensitive data</button>
+</section>
+<section id="review" aria-labelledby="review-title" hidden><h2 id="review-title">2. Review replacements</h2><p>Equal source text shares one replacement. Split occurrences when different people share a name.</p>
+<p class="notice">Dates, locations, and organizations stay unchanged unless selected. Changing them can alter the case.</p>
+<p id="analysis-summary" class="muted"></p><div id="groups"></div>
+<details><summary>Add a missed value</summary><div class="manual"><label for="manual-value">Exact source text<input id="manual-value" type="text" autocomplete="off"></label><label for="manual-kind">Type<select id="manual-kind"><option>PERSON</option><option>EMAIL</option><option>ID</option><option>ADDRESS</option><option>PHONE</option><option>SSN</option><option>CARD</option><option>LOCATION</option><option>ORGANIZATION</option><option>SECRET</option><option>DATE</option></select></label><button id="add-manual" class="quiet">Find all occurrences</button></div><p class="muted">This reruns detection and resets review choices.</p></details>
+<button id="preview">Preview transformed case</button></section>
+<section id="output" aria-labelledby="output-title" hidden><h2 id="output-title">3. Check and export</h2><p id="result-summary"></p><label for="output-document">Document<select id="output-document"></select></label><div class="comparison"><div><h3>Source</h3><pre id="before"></pre></div><div><h3>Transformed</h3><pre id="after"></pre></div></div>
+<p class="notice">Review every document. Detectors can miss sensitive data. This export requires your review before reuse.</p>
+<label class="confirmation"><input id="confirmed" type="checkbox">I reviewed the replacements, kept values, and case facts.</label><div class="actions"><button id="export" disabled>Download reviewed case</button><span class="muted">Contains transformed documents and a report. No source files or identity map.</span></div></section>
+<footer>Processing stays on this computer. Cases clear after 30 minutes of inactivity or when you choose Clear case. No telemetry or billing.</footer>
+</main></body></html>

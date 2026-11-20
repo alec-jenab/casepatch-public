@@ -1,0 +1,94 @@
+CasePatch
+Copyright 2026 CasePatch contributors
+
+This product is licensed under the Apache License, Version 2.0.
+See the LICENSE file in the project root.
+
+This NOTICE lists third-party material included with CasePatch, or used
+to build bundled samples, fonts, and name gazetteers. Model providers
+are listed because the software can call their APIs; no model weights
+are distributed in this repository.
+
+==============================================================================
+Sample documents
+==============================================================================
+
+Studio "Try the example case" documents (see
+web/casepatch_studio/sample/ATTRIBUTION.md):
+
+  * 01_card_statement.pdf — Consumer Financial Protection Bureau,
+    "Building Blocks" sample credit card statement (consumerfinance.gov).
+    United States federal government work, public domain.
+
+  * 02_receipt_photo.jpg — CORD v2 receipt dataset, test split row 88,
+    Park et al., "CORD: A Consolidated Receipt Dataset for Post-OCR
+    Parsing" (naver-clova-ix/cord-v2). Licensed under Creative Commons
+    Attribution 4.0 International (CC BY 4.0),
+    https://creativecommons.org/licenses/by/4.0/.
+
+  * 03_id_card_photo.jpg — MIDV-500 mobile identity document video
+    dataset, Albanian ID specimen, Arlazarov et al. (2019); frame via
+    the Noaman/midv500 Hugging Face mirror. Licensed under Creative
+    Commons Attribution-ShareAlike 2.5 Generic (CC BY-SA 2.5),
+    https://creativecommons.org/licenses/by-sa/2.5/.
+
+    This file is redistributed unmodified. Transformed outputs you make
+    from it are adaptations and must be shared under CC BY-SA 2.5.
+
+Landing-page and demo comparison images derived from the same sources
+are documented in web/landing/assets/LICENSES.md and
+web/demo/cases/compare/ATTRIBUTION.md. Images derived from the MIDV-500
+ID specimen are also licensed under CC BY-SA 2.5.
+
+Other public-domain sample citations (United States government works
+and Wikimedia Commons official specimens) are documented in those
+attribution files and in examples/real/SOURCES.md. Research-only
+datasets (including FUNSD and SROIE) are not included in this
+repository.
+
+==============================================================================
+Fonts
+==============================================================================
+
+  * Inter (web/casepatch_studio/static/fonts/) — Copyright 2016 The
+    Inter Project Authors (https://github.com/rsms/inter). Licensed
+    under the SIL Open Font License 1.1. See
+    web/casepatch_studio/static/fonts/LICENSES.md and OFL.txt.
+
+  * Document-rendering fonts under web/demo/build-fonts/ — typically
+    SIL Open Font License 1.1 or Apache License 2.0, as stated in each
+    family's LICENSE file in that directory (Google Fonts and upstream
+    projects, including Tinos, Cousine, Special Elite, Homemade Apple,
+    Yellowtail, and others).
+
+==============================================================================
+Name gazetteers
+==============================================================================
+
+See casepatch/docs/data/LICENSES.md:
+
+  * given_names_us.txt — United States Social Security Administration
+    baby-name data (United States federal government work, public
+    domain), via hadley/data-baby-names.
+
+  * given_names_intl.txt — compiled from CC0 1.0 collections
+    (sigpwned/popular-names-by-country-dataset and Wikidata given names
+    extracted by brawer/wikidata-names).
+
+==============================================================================
+Synthetic faces (example "after" images)
+==============================================================================
+
+Some example "after" images may include synthetic faces from SFHQ
+(MIT license on GitHub / CC0 on Kaggle). See
+web/landing/assets/LICENSES.md.
+
+==============================================================================
+Model APIs (not distributed)
+==============================================================================
+
+CasePatch can call third-party model APIs when the user supplies their
+own key (bring-your-own-key). No model weights and no vendor API keys
+are included in this distribution. Use of those APIs is subject to the
+provider's own terms, including without limitation Anthropic, OpenAI,
+Google, Moonshot/Kimi, Fal, and Ideogram.

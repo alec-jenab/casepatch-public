@@ -1,0 +1,13 @@
+# sdist = the package sources, licences and the package README only (the repo's tests, site, ops and benches stay private)
+prune tests
+prune web/demo
+prune bench
+prune examples
+prune ops
+prune docs
+prune tools
+prune releases
+prune verification
+include LICENSE NOTICE sdk/python/README.md
+recursive-include casepatch/fonts *
+exclude README.md
