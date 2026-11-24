@@ -79,6 +79,9 @@ def main():
     docs.add_argument("--decisions", help="decisions.json from review (accept/reject per text proposal, replace/keep/erase per region; optional _add list of {text, kind} reviewer additions). "
                            "Ids are bound to content: decisions that no longer match a current proposal (or positional ids from 0.5.0 and older) are refused with exit code 3")
     docs.add_argument("--no-verify", action="store_true")
+    docs.add_argument("--keep", action="append", metavar="TERM", default=[],
+                      help="Never replace this term (case-insensitive, whole phrase), e.g. your own bank name; repeatable")
+    docs.add_argument("--keep-file", metavar="PATH", help="Terms never to replace, one per line ('#' starts a comment)")
     docs.add_argument("--fail-on-residual", action="store_true",
                       help="Exit 4 when verification finds a detected original value still readable in an output (or verification was skipped)")
     docs.add_argument("--fail-on-review", action="store_true",
@@ -217,6 +220,12 @@ def docs_command(args):
         except HostedNotAllowed as exc:
             print("HOSTED_DISABLED: " + str(exc), file=sys.stderr); return 2
     from .docs.decisions import DecisionsRefused
+    from .keep import KeepList, KeepListError, read_keep_file
+    try:
+        keep = KeepList(list(getattr(args, "keep", None) or []) +
+                        (read_keep_file(args.keep_file) if getattr(args, "keep_file", None) else []))
+    except (KeepListError, OSError) as exc:
+        print(f"KEEP_LIST_INVALID: {exc}", file=sys.stderr); return 2
     out = Path(args.out)
     if out.exists():
         refused = output_refusal(out, Path(args.input_dir), getattr(args, "overwrite", False))
@@ -248,9 +257,13 @@ def docs_command(args):
         shutil.rmtree(out)
     try:
         report, *_ = run(str(staged) if staged else args.input_dir, args.out, args.detector, args.review_dir, args.decisions,
-                         not args.no_verify, hosted=hosted)
+                         not args.no_verify, hosted=hosted, keep=keep)
     except DecisionsRefused as exc:
         print(str(exc), file=sys.stderr); return 3
+    except FileNotFoundError:
+        if Path(args.input_dir).exists():
+            raise
+        print(f"INPUT_NOT_FOUND: File or folder not found: {args.input_dir}", file=sys.stderr); return 2
     except FileExistsError:
         print(f"OUTPUT_DIRECTORY_EXISTS: {args.out} already exists. Choose a new --out, or pass --overwrite to replace it.",
               file=sys.stderr); return 2

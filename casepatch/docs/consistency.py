@@ -767,6 +767,19 @@ def plan(cmap, graph: FactGraph, occs, order=None):
     # full dates before boxed years (a boxed year follows its full date's plan), MRZ after DOBs and names
     seq = order or sorted(occs, key=lambda o: (o.kind != "PERSON", o.kind == "MRZ",
                                                  o.kind == "DOB" and (parse_date(o.text) or DateVal("", [], None, 0, "day", {})).precision == "year"))
+    from .resolve import surname_aliases, _part_of as _part_of_surname
+    for part, full in surname_aliases(occs).items():  # 'Q. Hale' for 'Quintero-Hale': one fake surname
+        cmap.alias_surname(part, full)
+    for o in occs:  # a surname part or street name printed on its own: the fake of the full value it came from
+        src = (getattr(o, "meta", None) or {}).get("part_of")
+        if src and o.kind == "SURNAME" and "-" in o.text.strip() and o.text.strip().lower() != src.lower():
+            for x in o.text.strip().split("-"):  # another hyphenated form: its parts of the surname, part by part
+                if _part_of_surname(x.lower(), src):
+                    cmap.alias_surname(x, src)
+        elif src and o.kind == "SURNAME":
+            cmap.alias_surname(o.text.strip(), src)
+        elif src and o.kind == "ADDRESS":
+            cmap.alias_street(o.text.strip(), src)
     for o in seq:
         o.replacement = cmap.replace(o.kind, o.text)
         if o.kind not in ("DOB", "MRZ"):
@@ -851,6 +864,10 @@ def link_partial_identifiers(occs, line_text=None):
 
 
 # ------------------------------------------------------------------------------------------------ checker
+def _spaced_surname(text):
+    return " ".join(re.split(r"[\s\-‐‑–]+", text.strip()))
+
+
 def _rep(repl, o):
     return repl.get(o.id, getattr(o, "replacement", None))
 
@@ -884,7 +901,9 @@ def check(graph: FactGraph, repl: dict):
             for o, r in zip(os_, rs):
                 if r is None:
                     continue
-                if r in seen and seen[r].text != o.text:
+                if r in seen and seen[r].text != o.text and not (
+                        o.kind == "SURNAME" and _spaced_surname(seen[r].text) == _spaced_surname(o.text)):
+                    # ('Pennick Hale' printed for 'Pennick-Hale' is the same surname)
                     bad("MISMATCH_COLLAPSED", [seen[r].id, o.id], kind=o.kind)
                 seen.setdefault(r, o)
         elif t in ("DOB_DOC", "DOB_ISSUE", "AGE_DOB"):
@@ -972,6 +991,12 @@ def check(graph: FactGraph, repl: dict):
                 if k in seen and seen[k] != pr["surname"].lower():
                     bad("NAME_VARIANT_SPLIT", ids, surname_form=o.kind); break
                 seen.setdefault(k, pr["surname"].lower())
+            else:
+                # part of a compound surname ('Hale' of 'Quintero-Hale') printed alone: same fake surname as the whole
+                from .resolve import surname_parts
+                for full, fake in seen.items():
+                    if any(seen.get(part) not in (None, fake) for part in surname_parts(full)):
+                        bad("NAME_VARIANT_SPLIT", ids, surname_form="part_of_compound"); break
     return out
 
 

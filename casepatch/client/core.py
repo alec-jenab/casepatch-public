@@ -120,9 +120,10 @@ def report_fields(rep: dict, docs: Optional[Iterable[str]] = None, sent: bool = 
             "gate": gate}
 
 
-def precheck(src: Path) -> Optional[str]:
+def precheck(src: Path, deep: bool = False) -> Optional[str]:
     """A reason the file cannot join a case (type/content), or None. Cheap and local: textual files are fully validated
-    (UTF-8, JSON/JSONL syntax, size and record bounds), documents by their signature."""
+    (UTF-8, JSON/JSONL syntax, size and record bounds), documents by their signature; `deep` (local mode) also opens
+    the document the way the engine will."""
     ext = src.suffix.lower()
     if ext not in SUPPORTED:
         return f"Unsupported file type {ext!r}: use PDF, PNG, JPG, JSON, JSONL or TXT."
@@ -133,11 +134,49 @@ def precheck(src: Path) -> Optional[str]:
         except TextualError as e:
             return f"{src.name}: {e.code}" + (f" ({e.where})" if e.where else "")
         return None
+    if src.stat().st_size == 0:
+        return f"{src.name} is empty (0 bytes)."
     with open(src, "rb") as f:
         head = f.read(8)
     want = {".pdf": (b"%PDF-",), ".png": (b"\x89PNG\r\n\x1a\n",), ".jpg": (b"\xff\xd8\xff",), ".jpeg": (b"\xff\xd8\xff",)}[ext]
     if not head.startswith(want):
         return f"{src.name}: the contents are not a {ext[1:].upper()} file."
+    return _unreadable(src, ext) if deep else None
+
+
+def _unreadable(src: Path, ext: str) -> Optional[str]:
+    """Open the document the way the engine will, when the engine's libraries are installed (local mode); the cloud-only
+    install has no PDF/image libraries, and the hosted API checks uploads itself."""
+    if ext == ".pdf":
+        try:
+            import pymupdf
+        except ImportError:
+            return None
+        try:
+            pymupdf.TOOLS.mupdf_display_errors(False)
+        except Exception:
+            pass
+        try:
+            with pymupdf.open(src, filetype="pdf") as d:
+                if d.needs_pass:
+                    return f"{src.name} is password-protected; remove the password and try again."
+                if d.page_count < 1:
+                    return f"{src.name} could not be read as a PDF (it may be corrupt or empty)."
+                d.load_page(0)
+        except Exception:
+            return f"{src.name} could not be read as a PDF (it may be corrupt or empty)."
+        return None
+    try:
+        from PIL import Image
+    except ImportError:
+        return None
+    try:
+        with Image.open(src) as im:
+            im.load()
+    except Image.DecompressionBombError:  # very large but readable: the engine reports the size limit
+        return None
+    except Exception:
+        return f"{src.name} could not be read as a {ext[1:].upper()} image (it may be corrupt or truncated)."
     return None
 
 
@@ -153,12 +192,17 @@ class CasePatch:
 
     def __init__(self, api_key: Optional[str] = None, mode: Optional[Mode] = None, base_url: Optional[str] = None,
                  timeout: float = 900.0, poll_interval: float = 1.5, transport: Optional[Callable[..., Any]] = None,
-                 verify: bool = True, case_key: Optional[str] = None):
+                 verify: bool = True, case_key: Optional[str] = None, keep: Optional[Iterable[str] | str] = None):
         mode = mode or (os.environ.get("CASEPATCH_MODE") or "").strip().lower() or "auto"  # type: ignore[assignment]
         if mode not in ("auto", "local", "cloud"):
             raise ValueError('mode must be "auto", "local" or "cloud" (also for CASEPATCH_MODE)')
         self.api_key = api_key or os.environ.get("CASEPATCH_API_KEY") or None
         self.case_key = case_key or os.environ.get("CASEPATCH_CASE_KEY") or None
+        from ..keep import KeepListError, parse_keep
+        try:  # terms never replaced: your own bank/merchant name, a product, a city, a support address
+            self.keep: list[str] = parse_keep(keep)
+        except KeepListError as e:
+            raise CasePatchError(str(e)) from None
         if mode == "auto":
             if local_available():
                 mode = "local"
@@ -176,9 +220,10 @@ class CasePatch:
                                      'For local mode (no key, nothing uploaded) install "casepatch[local]".')
             self._backend: Any = CloudBackend(self.api_key, (base_url or os.environ.get("CASEPATCH_BASE_URL") or DEFAULT_BASE_URL),
                                               timeout=timeout, poll_interval=poll_interval, transport=transport)
+            self._backend.keep = list(self.keep)
         else:
             from .local import LocalBackend
-            self._backend = LocalBackend(verify=verify)
+            self._backend = LocalBackend(verify=verify, keep=self.keep)
         self._engine_key = None
         if self.case_key is not None and self.mode == "local":
             from .local import derive_case_key
@@ -190,8 +235,10 @@ class CasePatch:
         (default: document.anonymized.<ext> next to it; explicit output paths are kept)."""
         src = Path(path)
         if not src.is_file():
-            raise FileNotFoundError(str(src))
-        bad = precheck(src)
+            if src.is_dir():
+                raise IsADirectoryError(f"{src} is a folder: use anonymize_folder (CLI: the same command handles folders).")
+            raise FileNotFoundError(f"File not found: {src}")
+        bad = precheck(src, deep=getattr(self, "mode", None) == "local")
         if bad:
             raise CasePatchError(bad)
         dst = Path(out) if out is not None else default_out(src)
@@ -214,7 +261,9 @@ class CasePatch:
         with separate identity maps. `report`: optional JSONL file, one line per document."""
         src, dst = Path(folder), Path(out_dir)
         if not src.is_dir():
-            raise NotADirectoryError(str(src))
+            if src.exists():
+                raise NotADirectoryError(f"{src} is a file, not a folder: use anonymize for one file.")
+            raise FileNotFoundError(f"Folder not found: {src}")
         results: list[Result] = []
         files = list(iter_documents(src, recursive))
         case = getattr(self._backend, "anonymize_case", None)
@@ -224,7 +273,7 @@ class CasePatch:
             todo, pre = [], {}
             for i, f in enumerate(files, 1):
                 target = dst / f"document-{i:02d}{f.suffix.lower()}"
-                bad = precheck(f)
+                bad = precheck(f, deep=getattr(self, "mode", None) == "local")
                 if bad:
                     pre[f] = Result(source=str(f), output=None, mode=self.mode, status="error",
                                     error=f"{bad} Not included in the case.")

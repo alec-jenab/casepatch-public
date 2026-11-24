@@ -6,7 +6,21 @@ import json
 import sys
 from pathlib import Path
 
-from .core import CasePatch, CasePatchError
+from .core import SUPPORTED, CasePatch, CasePatchError
+
+SUPPORTED_TEXT = "supported: PDF, PNG, JPG/JPEG documents and JSON, JSONL/NDJSON, TXT traces"
+
+
+def unsupported_files(folder: Path, recursive: bool = False) -> list[Path]:
+    """Files in the folder that `anonymize` does not read (hidden files are ignored)."""
+    it = folder.rglob("*") if recursive else folder.iterdir()
+    return sorted(p for p in it if p.is_file() and not p.name.startswith(".") and p.suffix.lower() not in SUPPORTED)
+
+
+def skipped_note(folder: Path, files: list[Path], limit: int = 10) -> str:
+    names = [str(p.relative_to(folder)) for p in files]
+    shown = ", ".join(names[:limit]) + (f" and {len(names) - limit} more" if len(names) > limit else "")
+    return f"skipped {len(names)} file(s) of unsupported types, not part of the case: {shown} ({SUPPORTED_TEXT})"
 
 
 def add_parsers(commands) -> None:
@@ -21,6 +35,9 @@ def add_parsers(commands) -> None:
     a.add_argument("--base-url", help=argparse.SUPPRESS)
     a.add_argument("--case-key", help="Reproducible fakes: same input + same case key -> same replacements "
                                       "(default: $CASEPATCH_CASE_KEY; 16+ characters, keep it secret)")
+    a.add_argument("--keep", action="append", metavar="TERM", default=[],
+                   help="Never replace this term (case-insensitive, whole phrase), e.g. your own bank name; repeatable")
+    a.add_argument("--keep-file", metavar="PATH", help="Terms never to replace, one per line ('#' starts a comment)")
     a.add_argument("--recursive", action="store_true", help="Include subfolders")
     a.add_argument("--overwrite", action="store_true")
     a.add_argument("--report", help="Write one JSON line per document (includes original values: keep it private)")
@@ -36,9 +53,19 @@ def run(args) -> int:
             print(f"casepatch: {e}", file=sys.stderr)
             return 2
         return 0
+    if not Path(args.path).exists():
+        print(f"casepatch: File or folder not found: {args.path}", file=sys.stderr)
+        return 2
     try:
+        keep = list(getattr(args, "keep", None) or [])
+        if getattr(args, "keep_file", None):
+            from ..keep import KeepListError, read_keep_file
+            try:
+                keep += read_keep_file(args.keep_file)
+            except (KeepListError, OSError) as e:
+                raise CasePatchError(f"Could not read the keep file: {e}") from None
         cp = CasePatch(api_key=args.api_key, mode=args.mode, base_url=args.base_url,
-                       case_key=getattr(args, "case_key", None))
+                       case_key=getattr(args, "case_key", None), keep=keep)
         src = Path(args.path)
         print(f"mode: {cp.mode}" + (" (files are uploaded to the CasePatch API)" if cp.mode == "cloud" else " (nothing is uploaded)"),
               file=sys.stderr)
@@ -47,18 +74,16 @@ def run(args) -> int:
                 print(f"{'ok ' if r.ok else 'ERR'} {r.source} -> {r.output or r.error}  {r.summary if r.ok else ''}")
                 if r.ok:
                     print(f"    {r.review_line()}")
+            skipped = unsupported_files(src, args.recursive)
+            if skipped:
+                print(skipped_note(src, skipped), file=sys.stderr)
             rs = cp.anonymize_folder(src, args.out, recursive=args.recursive, overwrite=args.overwrite,
                                      report=args.report, on_result=show)
             bad = sum(not r.ok for r in rs)
+            if not rs:
+                print(f"casepatch: no supported files in {args.path} ({SUPPORTED_TEXT}).", file=sys.stderr)
+                return 2
             print(f"{len(rs) - bad}/{len(rs)} documents anonymized into {args.out}")
-            from .core import SUPPORTED
-            it = src.rglob("*") if args.recursive else src.iterdir()
-            other = sorted({p.suffix.lower() or "(no extension)" for p in it if p.is_file() and not p.name.startswith(".")
-                            and p.suffix.lower() not in SUPPORTED})
-            if other:
-                n = sum(1 for p in (src.rglob("*") if args.recursive else src.iterdir()) if p.is_file()
-                        and not p.name.startswith(".") and p.suffix.lower() not in SUPPORTED)
-                print(f"skipped {n} file(s) of unsupported types ({', '.join(other)}): not part of the case", file=sys.stderr)
             return 1 if bad else 0
         r = cp.anonymize(src, args.out, overwrite=args.overwrite)
         if args.report:
@@ -67,6 +92,6 @@ def run(args) -> int:
         if r.ok:
             print(r.review_line())
         return 0 if r.ok else 1
-    except (CasePatchError, FileNotFoundError, FileExistsError, NotADirectoryError) as e:
+    except (CasePatchError, FileNotFoundError, FileExistsError, NotADirectoryError, IsADirectoryError) as e:
         print(f"casepatch: {e}", file=sys.stderr)
         return 2

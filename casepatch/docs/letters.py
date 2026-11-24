@@ -137,10 +137,17 @@ def _given():
     return given_names()
 
 
+def _heading_words():
+    from .addressblock import NOT_NAMES
+    return NOT_NAMES
+
+
 def letter_name_proposals(docs):
     out = []
-    letter = _is_letter(docs)
     for d in docs:
+        # letter positions (signature block, addressee block) are decided per document: a letter in a multi-file case
+        # does not make a statement or form in the same case read like correspondence
+        letter = _is_letter([d])
         for p in d.pages:
             lines = [l for l in p.lines if getattr(l, "source", "ocr") != "json" and l.text.strip()]
             for i, l in enumerate(lines):
@@ -191,6 +198,8 @@ def letter_name_proposals(docs):
                     rs = _romanized_span(t)
                     if rs:
                         continue  # already added on the letter path
+                    if any(_clean(x) in _heading_words() for x in t.split()):
+                        continue  # a document heading ('Monthly Card Statement'), not an addressee
                     if 2 <= len(t.split()) <= 4 and _ok_name(t) and re.match(rf"{NAME_RUN}$", t) and \
                             (not t.isupper() or _romanized_span(t) is not None or
                              any(_clean(x) in _given() for x in t.split())):  # not an all-caps heading

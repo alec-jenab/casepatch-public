@@ -29,7 +29,7 @@ https://casepatch.com/guides/anonymize-production-data-for-ai-agent-evals.html
 
 ## One case folder
 
-Put everything that belongs to one case in one folder: documents (PDF, PNG, JPG) and traces (`.json`, `.jsonl`,
+Put everything that belongs to one case in one folder: documents (PDF, PNG, JPG, TIFF, WEBP) and traces (`.json`, `.jsonl`,
 `.txt`: transcripts, tool calls, expected outputs). The folder is ONE case: the same person, account, card or date
 gets the same replacement in every document and every trace, including JSON fields such as tool-call arguments and
 expected outputs. JSON keeps its keys, nesting and value types; JSONL keeps one record per line; text keeps its lines.
@@ -48,7 +48,10 @@ for r in results:
 casepatch anonymize ./case --out ./anon --local
 casepatch anonymize ./case --out ./anon --cloud          # uses CASEPATCH_API_KEY; the folder is sent as one case
 casepatch anonymize statement.pdf --out anon.pdf          # one file
+casepatch anonymize ./case --out ./anon --local --keep "Acme Bank"
 ```
+
+`CasePatch(keep=["Acme Bank"])` (or `--keep` / `--keep-file`) leaves those terms unchanged in every file of the case.
 
 A file that fails its type/content check (for example invalid JSON, with the line number) is reported and left out;
 the other files still run as one case. If the case itself cannot run, every file reports the error: a case is never

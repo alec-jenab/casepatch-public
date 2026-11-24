@@ -19,6 +19,24 @@ from dataclasses import dataclass, field
 from .detect import Proposal
 
 HONORIFIC = r"(?:Mr|Ms|Mrs|Miss|Dr|Ofc|Officer|Det)\.?"
+
+
+def split_role_title(text):
+    """'Captain Velloran' -> ('Captain ', 'Velloran'); 'Chief Judge Ada Brill' -> ('Chief Judge ', 'Ada Brill'); a text
+    without a leading role title (or only a title) -> ('', text)."""
+    from .legal import ROLE_TITLES
+    t = text or ""
+    i = 0
+    for w in re.finditer(r"([A-Za-z]+)\.?\s+", t):
+        if w.start() != i or w.group(1).upper() not in ROLE_TITLES:
+            break
+        i = w.end()
+    rest = t[i:]
+    if not i or not re.match(r"[A-Za-z]", rest):
+        return "", t
+    return t[:i], rest
+
+
 # Keep in sync with casepatch.docs.legal.LINE_PREFIX. Used so an OCR-mangled
 # 'D-I DAVID BRIAN STONE' still parses as the person name, not as unparsed text.
 _DOCKET_PREFIX = re.compile(
@@ -54,6 +72,9 @@ ORG_POOL = ["Arvo", "Belmar", "Corvex", "Daltrin", "Everline", "Fenwick", "Grani
             "Lumen", "Meridian", "Northgate", "Orchard", "Pelican", "Quarry", "Redwood", "Sterling", "Tidewater", "Unison", "Vantage",
             "Westbrook", "Yarrow", "Zenith", "Brightwave", "Copperfield", "Driftwood"]
 STREETS = ["Elm Park", "Oak Glen", "Fern Hill", "Briar Ridge", "Willow Bend", "Cedar Hollow", "Larkspur", "Juniper Hill", "Foxglove", "Harbor View", "Aspen Crest", "Stonebrook"]
+STREET_LINE = re.compile(r"(\d+[A-Za-z]?)\s+((?:[A-Za-z][A-Za-z.'’-]*\s+)+?)(Street|St|Avenue|Ave|Road|Rd|Lane|Ln|Drive|Dr|"
+                         r"Boulevard|Blvd|Court|Ct|Way|Place|Pl|Terrace|Ter|Circle|Cir|Parkway|Pkwy|Highway|Hwy|Trail|Trl|"
+                         r"Bend|Crescent|Plaza|Ridge|Alley|Hollow|Commons)\b(.*)", re.I)
 
 
 @dataclass
@@ -187,6 +208,8 @@ DOC_WORDS = {"patient", "member", "customer", "client", "account", "statement", 
 
 _NAME_PARTICLES = {"van", "von", "de", "del", "della", "der", "den", "da", "di", "du", "la", "le", "bin", "al", "el", "abu",
                    "ibn", "bint", "das", "dos", "ter", "ten", "do", "y"}
+# particles that also start a surname when capitalised ('De Silva', 'Van Houten', 'Della Rocca', 'Le Blanc')
+_TITLE_PARTICLES = {"van", "von", "de", "del", "della", "der", "den", "da", "di", "du", "la", "le", "das", "dos", "ter"}
 
 
 def _trim_person_words(value, s, e):
@@ -202,9 +225,35 @@ def _trim_person_words(value, s, e):
         return bool(w) and w[0].islower()
     while len(toks) > 1 and low(toks[0][2]) and toks[0][2].strip(".,") not in _NAME_PARTICLES:
         toks.pop(0)
-    while len(toks) > 1 and low(toks[-1][2]):
-        toks.pop()
+    while len(toks) > 1 and low(toks[-1][2]) and not re.fullmatch(r"(?:al|el|ad|ar|as|at|ash|az)-[A-Z][\w'’-]*", toks[-1][2].rstrip(".,;:!?")):
+        toks.pop()  # ('Idris al-Haddawi' keeps its surname)
     return (toks[0][0], toks[-1][1]) if toks else (s, e)
+
+
+def _particle_start(toks, upper=False):
+    """Index of the first particle of a 'Given [M.] particle... Surname' name ('Ottilie van der Brakel' -> 1), or None.
+    Particles are lowercase (any case when the whole name is in capitals); one to three of them, then a capitalised word."""
+    if not 3 <= len(toks) <= 6 or not re.fullmatch(r"[A-Za-z'’-]+", toks[0]) or \
+            not re.fullmatch(r"[A-Z][A-Za-z'’]+(?:-[A-Za-z'’]+)*", toks[-1]):
+        return None
+    for i in (1, 2):
+        run = toks[i:-1]
+        if run and len(run) <= 3 and all(x.lower() in _NAME_PARTICLES and (upper or x.islower()) for x in run):
+            return i
+        # Title-case particles ('Ana De Silva', 'Marco Van Houten', 'Rosa De La Cruz'): the given name is not a particle
+        if run and len(run) <= 3 and not upper and toks[0].lower() not in _NAME_PARTICLES and \
+                all(x.lower() in _TITLE_PARTICLES and x[:1].isupper() for x in run):
+            return i
+    return None
+
+
+def particle_surname(surname):
+    """'van der Brakel' -> ('van der', 'Brakel'); a surname without particles -> None."""
+    toks = (surname or "").split()
+    if len(toks) < 2 or len(toks) > 4 or not all(x.lower() in _NAME_PARTICLES for x in toks[:-1]) or \
+            toks[-1].lower() in _NAME_PARTICLES:
+        return None
+    return " ".join(toks[:-1]), toks[-1]
 
 
 def parse_person(text):
@@ -221,6 +270,17 @@ def parse_person(text):
         return {"surname": toks[1], "given": toks[0][0], "middle": None, "form": "initial", "case": case}
     if len(toks) == 3 and re.fullmatch(r"[A-Z]\.?", toks[1]):
         return {"surname": toks[2], "given": toks[0], "middle": toks[1][0], "form": "first_middle_last", "case": case}
+    if particle_surname(t) and (toks[0].islower() or len(toks) >= 3 and (case == "upper" or
+                                                                       all(x.islower() for x in toks[1:-1]))):
+        # 'van der Brakel' / 'Van der Brakel' / 'VAN DER BRAKEL' alone: a surname, not 'Van' + 'Brakel'
+        return {"surname": t, "given": None, "middle": None, "form": "surname", "case": case}
+    pi = _particle_start(toks, case == "upper")
+    if pi is not None:  # 'Ottilie van der Brakel', 'Ana M. de la Cruz', 'OTTILIE VAN DER BRAKEL': the surname is 'van der Brakel'
+        sur = " ".join(toks[pi:])
+        if pi == 1:
+            return {"surname": sur, "given": toks[0], "middle": None, "form": "first_last", "case": case}
+        if re.fullmatch(r"[A-Z]\.?", toks[1]):
+            return {"surname": sur, "given": toks[0], "middle": toks[1][0], "form": "first_middle_last", "case": case}
     if 2 <= len(toks) <= 3 and all(re.fullmatch(r"[A-Za-z'’-]+", x) for x in toks):
         return {"surname": toks[-1], "given": toks[0], "middle": None, "form": "first_last", "case": case}
     if len(toks) == 1 and re.fullmatch(r"[A-Za-z'’-]+", toks[0]):
@@ -228,11 +288,29 @@ def parse_person(text):
     return None
 
 
+def middle_name(text):
+    """The spelled-out middle name of a 'Given Middle Surname' name ('Marguerite' in 'Odalys Marguerite Brennecke-Vance'),
+    or None (initials, particles such as 'de', other forms)."""
+    t = re.sub(r"^" + HONORIFIC + r"\s+", "", (text or "").strip())
+    _, t = _split_docket_prefix(t)
+    p = parse_person(t)
+    toks = t.strip().split()
+    if not p or p["form"] != "first_last" or len(toks) != 3:
+        return None
+    m = toks[1]
+    if len(m) < 2 or not m[0].isupper() or m.lower() in _NAME_PARTICLES or not re.fullmatch(r"[A-Za-z']+", m):
+        return None
+    return m
+
+
 MASC_EXCEPTIONS = {"mike", "joe", "dave", "steve", "jose", "george", "randy", "andy", "roy", "jeremy", "tony", "harry", "larry",
                    "gary", "terry", "jerry", "bobby", "billy", "timothy", "anthony", "henry", "rocky", "rudy", "eddie", "freddie",
                    "johnny", "jimmy", "danny", "tommy", "luke", "pete", "mike", "wayne", "bruce", "lee", "jesse", "dale", "kyle",
                    "lance", "vince", "clyde", "duane", "shane", "dwayne", "andre", "rene", "mickey", "stanley", "bradley", "ricky"}
 
+
+EMAIL_ROLE_WORDS = {"support", "info", "billing", "help", "hello", "contact", "admin", "office", "team", "sales",
+                    "noreply", "no", "reply", "disputes", "claims", "service", "services", "care", "mail", "accounts"}
 
 class CaseMap:
     def __init__(self, key: bytes | None = None):
@@ -274,16 +352,52 @@ class CaseMap:
             self.given_style[self._given[k].lower()] = "f" if fem else "m"
         return self._given[k]
 
+    def alias_surname(self, part, full):
+        """One person's surname printed in part ('Hale' for 'Quintero-Hale', on a signature line or in prose) gets
+        the fake of the full surname, so every variant of that person reads as the same synthetic person."""
+        if part.lower() != full.lower():
+            self.__dict__.setdefault("_surname_alias", {})[part.lower()] = full
+
     def surname(self, name):
         k = name.lower()
+        alias = self.__dict__.get("_surname_alias", {}).get(k)
+        if alias is not None and k not in self._surname:
+            self._surname[k] = self.surname(alias)
+        aliases = self.__dict__.get("_surname_alias", {})
+        parts = [x for x in k.split("-") if x]
+        if alias is None and k not in self._surname and len(parts) > 1 and any(x in aliases for x in parts) \
+                and k not in {v.lower() for v in aliases.values()}:
+            # a hyphenated form with a part of a known compound ('Vance-Brennecke' or 'Ostrander-Vance' for
+            # 'Brennecke-Vance'): the parts of that surname read as its fake, other parts get their own
+            fulls = {aliases[x].lower() for x in parts if x in aliases}
+            if len(fulls) == 1 and all(x in aliases or _part_of(x, next(iter(fulls))) for x in parts):
+                self._surname[k] = self.surname(next(iter(fulls)))
+            else:
+                out = []
+                for x in parts:
+                    f = self.surname(x)
+                    if f not in out:
+                        out.append(f)
+                self._surname[k] = "-".join(out)
         if k not in self._surname:
             pool = [s for s in SURNAMES if s.lower() != k and s not in self._surname.values() and s.lower() not in self.sources] or \
                    [s for s in SURNAMES if s.lower() != k and s.lower() not in self.sources]  # pool exhausted: reuse
             self._surname[k] = self._closest_len(pool, len(name), "surname", k)
+        ps = particle_surname(k)
+        if ps:  # 'brakel' / 'vanderbrakel' of 'van der brakel' (an email's local part) read as the same fake
+            for x in (ps[1], re.sub(r"\s+", "", k)):
+                self._surname.setdefault(x, self._surname[k])
+        if len(parts) > 1 and all(re.fullmatch(r"[a-z']+", x) for x in parts):
+            # 'pennickhale' (an email's local part) for 'pennick-hale': the same fake
+            self._surname.setdefault("".join(parts), self._surname[k])
         return self._surname[k]
 
     def person(self, text):
         prefix, core = _split_docket_prefix((text or "").strip())
+        title, rest = split_role_title(core)
+        if title:  # 'Captain Velloran' -> 'Captain <fake surname>': the title is kept, it is not a given name
+            fake = self.person(rest)
+            return f"{prefix}{title}{fake}" if fake else None
         p = parse_person(core)
         if not p:
             return None
@@ -292,6 +406,9 @@ class CaseMap:
         ini = self.letter[p["given"][0].upper()] if p["given"] else None
         mid = self.letter[p["middle"].upper()] if p["middle"] else None
         f = p["form"]
+        middle = middle_name(core) if given else None  # a spelled-out middle name gets a fake given name of its own
+        if middle:
+            given = f"{given} {self.given(middle)}"
         out = {"last_first": f"{sur}, {given}" + (f" {mid}" if mid else ""), "initial": f"{ini}. {sur}",
                "first_middle_last": f"{given} {mid}. {sur}", "first_last": f"{given} {sur}", "surname": sur}[f]
         if "middle" in text and False:
@@ -365,17 +482,43 @@ class CaseMap:
         return "".join(next(it) if c.isdigit() else c for c in text)
 
     def email(self, text):
+        """Realistic fake address: name parts map to the case's fake person, initials to the case letter map,
+        other words to a fake surname of similar length; mailbox role words (support, billing, ...) are kept."""
         local, _, domain = text.partition("@")
-        def tok(m):
-            w = m.group()
-            k = w.lower()
+        def known(k):
             if k in self._given:
                 return self._given[k].lower()
             if k in self._surname:
                 return self._surname[k].lower()
-            return self._h("emailtok", k)[:len(w)]
+            return None
+        def initials(w):
+            return "".join(self.letter.get(c.upper(), c.upper()).lower() for c in w)
+        def tok(m):
+            w = m.group()
+            k = w.lower()
+            hit = known(k)
+            if hit:
+                return hit
+            if k in EMAIL_ROLE_WORDS:
+                return k
+            if len(k) <= 2:
+                return initials(k)
+            # a known name glued to initials or another known name: 'mquintero', 'marisolq', 'quinterohale'
+            for i in range(1, len(k)):
+                a, b = k[:i], k[i:]
+                ka, kb = known(a), known(b)
+                if ka and kb:
+                    return ka + kb
+                if kb and len(a) <= 2:
+                    return initials(a) + kb
+                if ka and len(b) <= 2:
+                    return ka + initials(b)
+            pool = [x.lower() for x in SURNAMES if x.lower() != k and x.lower() not in self.sources]
+            return self._closest_len(pool, len(k), "emailtok", k)
         new_local = re.sub(r"[A-Za-z]+", tok, local)
         new_local = re.sub(r"\d+", lambda m: self.digits(m.group(), "email"), new_local)
+        if new_local.lower() == local.lower():  # only role words: still a different mailbox, same shape
+            new_local = new_local + self.digits("%02d" % (self._n("emailrole", local.lower()) % 100), "emailrole")
         dom = domain if re.search(r"(^|\.)example\.(com|net|org)$", domain) or domain.endswith(".invalid") else "example.com"
         return new_local + "@" + dom
 
@@ -400,14 +543,26 @@ class CaseMap:
         tail = re.sub(r"\d+", lambda d: self.digits(d.group(), "zip4"), tail)
         return lead + fwd[five] + tail
 
+    def _street_name(self, name):
+        real = set(name.strip().lower().split())  # never keep the real street name or a word of it ('Elm' -> not 'Elm Park')
+        pool = [x for x in STREETS if not real & set(x.lower().split())] or [x for x in STREETS if x.lower() != name.strip().lower()]
+        return self._closest_len(pool, len(name.strip()), "street", name.strip().lower())
+
+    def alias_street(self, word, name):
+        """A street's name word printed on its own ('the Wrenfield house' for '2208 Wrenfield Drive') gets the fake
+        street name of the full address line."""
+        self.__dict__.setdefault("_street_alias", {})[word.lower()] = name
+
     def address(self, text):
-        m = re.match(r"(\d+[A-Za-z]?)\s+((?:[A-Za-z][A-Za-z.'’-]*\s+)+?)(Street|St|Avenue|Ave|Road|Rd|Lane|Ln|Drive|Dr|Boulevard|Blvd|Court|Ct|Way|Place|Pl|Terrace|Ter|Circle|Cir|Parkway|Pkwy|Highway|Hwy|Trail|Trl|Bend|Crescent|Plaza|Ridge|Alley|Hollow|Commons)\b(.*)", text, re.I)
+        alias = self.__dict__.get("_street_alias", {}).get(text.strip().lower())
+        if alias is not None:
+            return self._case(text.strip(), self._street_name(alias))
+        m = STREET_LINE.match(text)
         # (a value already known to be an address: the suffix may be in any case, 'JUNIPER TER' on a licence)
         if not m:
             return self.digits(text, "address")
         num, name, suffix, rest = m.groups()
-        pool = [x for x in STREETS if x.lower() != name.strip().lower()]  # never keep the real street name
-        street = self._closest_len(pool, len(name.strip()), "street", name.strip().lower())
+        street = self._street_name(name)
         rest = re.sub(r"(\bApt\.?|\bSuite|\bUnit|#)(\s*)(\d+)", lambda a: a.group(1) + a.group(2) + self._unit(a.group(3)), rest, flags=re.I)
         rest = re.sub(r"\b\d{5}(?:-\d{4})?\b", lambda z: self.zip(z.group()), rest)
         house = self.digits(num, "house")
@@ -464,6 +619,11 @@ class CaseMap:
         return self._wordwise(text, one)
 
     def surname_only(self, text):
+        if particle_surname(text.strip()):  # 'Van der Brakel' / 'VAN DER BRAKEL': one surname, one fake
+            return self._case(text.strip(), self.surname(text.strip()))
+        if len(text.split()) > 1 and text.strip().lower() in self.__dict__.get("_surname_alias", {}):
+            # 'Pennick Hale' printed for 'Pennick-Hale': the fake of that one surname, not word by word
+            return self._case(text.strip(), self.surname(text.strip()))
         def one(t):
             plain = re.fullmatch(r"[A-Za-z]+(?:['’-][A-Za-z]+)*", t.strip()) is not None
             key = t.strip() if plain else self._linked("SURNAME", t) if _script(t) != "latin" or t.isupper() else t.strip()
@@ -603,7 +763,9 @@ def org_header(prev):
     return ORG_WORDS.search(prev) is not None
 
 
-PERSON_CUE_LINE = re.compile(r"\b(?:Name|Cardholder|Customer|Patient|Member|Dear|Attn|To|Bill to|Ship to|Insured|Subscriber)\b", re.I)
+# a help desk named after its audience ('Member services', 'Customer care') is the organisation's contact, not a person cue
+PERSON_CUE_LINE = re.compile(r"\b(?:Name|Cardholder|Customer|Patient|Member|Dear|Attn|To|Bill to|Ship to|Insured|Subscriber)\b"
+                             r"(?!\s+(?:services?|support|care|relations|help\s*desk|helpline|hotline)\b)", re.I)
 
 
 def org_contact_lines(page_lines):
@@ -626,8 +788,9 @@ def org_contact_lines(page_lines):
     return out
 
 
-def build_occurrences(docs, proposals, propagate=True):
-    """Normalize + merge proposals per line, propagate values across the case, resolve persons."""
+def build_occurrences(docs, proposals, propagate=True, kept=()):
+    """Normalize + merge proposals per line, propagate values across the case, resolve persons. `kept`: texts kept as
+    facts (places, businesses); a name or street word inside one is not propagated there."""
     lines = {l.id: (d, p, l) for d in docs for p in d.pages for l in p.lines}
     prev_line = {}
     org_lines = set()
@@ -661,8 +824,17 @@ def build_occurrences(docs, proposals, propagate=True):
     for n in norm:
         by_line.setdefault(n.line_id, []).append(n)
     if propagate:
-        _propagate(lines, norm, by_line)
+        _propagate(lines, norm, by_line, kept)
+        # a value seen on a person's line elsewhere in the case stays as printed in an organisation's contact block
+        for lid in org_lines & set(by_line):
+            keep = [x for x in by_line[lid] if x.kind in ("ADDRESS", "ZIP", "PHONE") and x.detector != "reviewer"]
+            for x in keep:
+                REJECTED.append({"detector": x.detector, "kind": x.kind, "reason": "ORGANIZATION_CONTACT_PRESERVED"}); KEPT_VALUES.add(x.text)
+            by_line[lid] = [x for x in by_line[lid] if x not in keep]
     _vote_name_kinds(lines, norm, by_line)
+    _particle_surname_mentions(lines, norm, by_line)
+    if propagate:
+        _propagate_parts(lines, norm, by_line, set(kept) | KEPT_VALUES)
     occs = []
     for lid, props in by_line.items():
         d, p, l = lines[lid]
@@ -788,7 +960,7 @@ LAST4_MASK = r"(?:[*xX\u2022#]{3,}[\s*xX\u2022#\-]*)"
 SUFFIX_SOURCE_KINDS = {"CARD", "ACCOUNT", "ID", "MEMBER_ID", "PHONE", "SSN", "PASSPORT", "LICENSE", "IBAN", "POLICY"}
 
 
-def _propagate(lines, norm, by_line):
+def _propagate(lines, norm, by_line, kept=()):
     values = {}
     for n in norm:
         if n.confidence >= 0.5:
@@ -844,7 +1016,9 @@ def _propagate(lines, norm, by_line):
         if k and len(t) >= 3:
             s0 = l.text.index(t)
             by_line.setdefault(lid, []).append(Proposal(lid, s0, s0 + len(t), k, t, "propagation", 0.85))
-    for s in surnames:
+    # after an honorific, a person's surname or one part of a compound surname ('Ms. Okafor' for Ferreira-Okafor)
+    hon = set(surnames) | {x.capitalize() for s in surnames for x in surname_parts(s) if len(x) >= 3 and x not in DOC_WORDS}
+    for s in sorted(hon, key=len, reverse=True):
         patterns.append((re.compile(r"\b" + HONORIFIC + r"\s+(" + re.escape(s) + r")\b"), "PERSON_SURNAME", 0.85))
     # a known person's given name or surname used alone in prose ('Thanks, Marisol.', 'Okoye's card'): same identity.
     # Title-case or all-caps whole words only; names that are also ordinary words ('Will', 'Grace', 'Brown') only next
@@ -910,10 +1084,17 @@ def _propagate(lines, norm, by_line):
                     s, e = _trim_person_words(l.text, s, e)
                     by_line.setdefault(lid, []).append(Proposal(lid, s, e, "PERSON", l.text[s:e], "propagation", 0.85,
                                                                 None, {"why": "full-span-known-surname"}))
+    from .verify import _ORG_NEXT
+    kept = sorted({k for k in kept if k and len(k) >= 3}, key=len, reverse=True)
     for lid, (d, p, l) in lines.items():
+        in_kept = [(m.start(), m.end()) for k in kept for m in re.finditer(re.escape(k), l.text)] if kept else []
         for rx, kind, conf in patterns:
             for m in rx.finditer(l.text):
                 s, e = (m.span(1) if rx.groups else m.span())
+                if kind in ("GIVEN", "SURNAME") and _ORG_NEXT.match(l.text, e):
+                    continue  # a business named with the word ('HOLLOWAY AUTO', 'Vance Services LLC') is a kept fact
+                if kind in ("GIVEN", "SURNAME") and any(s < ke and e > ks for ks, ke in in_kept):
+                    continue  # a word inside a kept merchant name ('Rosalind Thistle' next to 'Rosalind Kellerman')
                 k = "PERSON" if kind == "PERSON_SURNAME" else kind
                 by_line.setdefault(lid, []).append(Proposal(lid, s, e, k, l.text[s:e], "propagation", min(conf, 0.9)))
         # JSON leaf whose key says card_last4 is handled by rules; also last4 anywhere in a json leaf equal to the value
@@ -933,6 +1114,203 @@ def _propagate(lines, norm, by_line):
             by_line.setdefault(lid, []).append(pr)
 
 
+PART_KIND = {"GIVEN": "GIVEN", "MIDDLE": "GIVEN", "SURNAME": "SURNAME", "STREET": "ADDRESS"}
+# a hyphenated surname written as Title or ALL-CAPS words ('Vance-Brennecke', 'OSTRANDER-VANCE')
+# (no OCR-glued 'MarisolQuintero-Hale': a part is Title case or capitals)
+_HYPHENATED = re.compile(r"(?<![A-Za-z'’-])[A-Z](?:[a-z']+|[A-Z']+)(?:-[A-Z](?:[a-z']+|[A-Z']+))+(?![A-Za-z'’-])")
+
+
+def _particle_surname_mentions(lines, norm, by_line):
+    """A person found as 'De Silva' / 'Ms. Van Houten' / 'DE SILVA' when the case also has 'Ana De Silva' is that
+    person's surname, not a given name 'De' + 'Silva': the span (honorific left out) becomes a SURNAME linked to the full
+    name, so it gets the person's one fake surname. Likewise a hyphenated surname printed with a space instead of the
+    hyphen ('Pennick Hale' / 'PENNICK HALE' when the case has 'Marisol Pennick-Hale') is that surname, not a second
+    person with given name 'Pennick'."""
+    from dataclasses import replace as _dc_replace
+    known, spaced = {}, {}
+    for n in norm:
+        if n.kind != "PERSON" or n.confidence < 0.5:
+            continue
+        p = parse_person(n.text)
+        if p and p.get("given") and len(p["given"]) > 1 and particle_surname(p["surname"]):
+            known.setdefault(p["surname"].lower(), set()).add(n.text)
+        elif p and p.get("given") and len(p["given"]) > 1 and len(surname_parts(p["surname"])) == 2:
+            spaced.setdefault(" ".join(surname_parts(p["surname"])), {}).setdefault(p["surname"], set()).add(n.text)
+    spaced = {k: v for k, v in spaced.items() if len({x.lower() for x in v}) == 1}
+    if not known and not spaced:
+        return
+    swap = {}
+    for lid, props in by_line.items():
+        text = (lines[lid][2].text or "") if lid in lines else ""
+        for i, pr in enumerate(props):
+            if pr.kind != "PERSON":
+                continue
+            span = text[pr.start:pr.end]
+            m = re.match(r"\s*(?:" + HONORIFIC + r"\s+)?", span)
+            core = span[m.end():].rstrip()
+            sp = spaced.get(" ".join(core.lower().split())) if len(core.split()) == 2 else None
+            if sp and core.lower() not in known:
+                full, srcs = next(iter(sp.items()))
+                s0 = pr.start + m.end()
+                new = _dc_replace(pr, start=s0, end=s0 + len(core), kind="SURNAME", text=core,
+                                  meta={**pr.meta, "part_of": full, "part_from": sorted(srcs)})
+                swap[id(pr)] = new
+                props[i] = new
+                continue
+            if not core or core.lower() not in known or len(core.split()) < 2:
+                continue
+            p = parse_person(core)
+            if p and p.get("given") and p["given"].lower() not in _NAME_PARTICLES:
+                continue  # 'Ana De Silva' itself, or a different given name
+            s0 = pr.start + m.end()
+            new = _dc_replace(pr, start=s0, end=s0 + len(core), kind="SURNAME", text=core,
+                              meta={**pr.meta, "part_of": core, "part_from": sorted(known[core.lower()])})
+            swap[id(pr)] = new
+            props[i] = new
+    if swap:
+        norm[:] = [swap.get(id(n), n) for n in norm]
+
+
+def _propagate_parts(lines, norm, by_line, kept):
+    """A given name, surname part or street name from a detected name / street line printed on its own elsewhere in
+    the case ('Pike called back' after 'Ines Halvorsen-Pike', 'the Wrenfield house' after '2208 Wrenfield Drive') is
+    the same value: proposed there, linked to the full value (meta part_of) so it gets the same fake. The words are the
+    ones the output check looks for (verify.identifying_part_sources: Title or ALL-CAPS whole words, no city, street
+    type, unit or everyday-word name); a word from two different values, a middle name, a word inside a kept fact or a
+    business name, and spans another proposal already covers are left alone."""
+    from .verify import identifying_part_sources, standalone_spans, titled_only_words, after_determiner, _norm, _ORG_NEXT
+    vals = [(n.kind, n.text) for n in norm if n.confidence >= 0.5]
+    full = {_norm(t) for _, t in vals}
+    # a name known only after a title ('a.k.a. "Captain Velloran"') can also be a group's name ('the VELLORAN'):
+    # a use after a determiner is left alone (the output check skips it too)
+    group_ok = titled_only_words(vals)
+    srcs = {}
+    for kind, text in vals:
+        for w, roles in identifying_part_sources([(kind, text)]).items():
+            srcs.setdefault(w, {"roles": set(), "from": set()})
+            srcs[w]["roles"] |= {(r, (sv or "").lower() or None) for r, sv in roles}
+            srcs[w]["from"].add(text)
+            srcs[w].setdefault("name", {}).update({(r, (sv or "").lower()): sv for r, sv in roles if sv})
+    # a person found only by a surname already known in the case ('Quenneville's husband, Anselm Quenneville') is a
+    # full name too: its words not yet known from another value ('Anselm called') are linked to it the same way
+    extra = sorted({pr.text for props in by_line.values() for pr in props
+                    if pr.kind == "PERSON" and pr.meta.get("why") == "full-span-known-surname"} - {t for _, t in vals})
+    for text in extra:
+        for w, roles in identifying_part_sources([("PERSON", text)]).items():
+            if w in srcs or _norm(w) in full:
+                continue
+            srcs[w] = {"roles": {(r, (sv or "").lower() or None) for r, sv in roles}, "from": {text},
+                       "name": {(r, (sv or "").lower()): sv for r, sv in roles if sv}}
+    full |= {_norm(t) for t in extra}
+    kept = sorted({k for k in kept if k and len(k) >= 3}, key=len, reverse=True)
+    # a street name of two or more words printed on its own ('the Copper Fennel house' after '4517 Copper Fennel
+    # Road') is one span with one fake, proposed before its words so they are not replaced one by one
+    phrases = {}
+    for w, info in srcs.items():
+        if _norm(w) in full or len(info["roles"]) != 1:
+            continue
+        role, key = next(iter(info["roles"]))
+        if role == "STREET" and key and len(key.split()) > 1 and _norm(key) not in full:
+            phrases[key] = (info["name"][(role, key)], info["from"])
+    for name, frm in sorted(phrases.values(), key=lambda x: -len(x[0])):
+        rxs = [re.compile(r"(?<![A-Za-z'’-])" + r"[ \t]+".join(map(re.escape, f.split())) + r"(?![A-Za-z'’-])")
+               for f in {name, name.upper()}]
+        for lid, (d, p, l) in lines.items():
+            text = l.text or ""
+            masked = [(m.start(), m.end()) for k in kept for m in re.finditer(re.escape(k), text)]
+            masked += [(pr.start, pr.end) for pr in by_line.get(lid, [])]
+            for m in sorted((m for rx in rxs for m in rx.finditer(text)), key=lambda m: m.start()):
+                s0, e0 = m.span()
+                if any(s0 < me and e0 > ms for ms, me in masked) or _ORG_NEXT.match(text, e0):
+                    continue  # covered already, inside a kept fact, or a business ('Copper Fennel Bakery')
+                by_line.setdefault(lid, []).append(Proposal(lid, s0, e0, "ADDRESS", text[s0:e0], "propagation", 0.8,
+                                                            None, {"part_of": name, "part_from": sorted(frm)}))
+                masked.append((s0, e0))
+    # a surname with particles printed without the given name ('Van der Brakel will call', 'VAN DER BRAKEL signed',
+    # 'Ms. van der Brakel' after 'Ottilie van der Brakel') is one span with the fake surname, particles included
+    psur = {}
+    for w, info in srcs.items():
+        if len(info["roles"]) != 1:
+            continue
+        role, key = next(iter(info["roles"]))
+        if role == "SURNAME" and key and particle_surname(key):
+            psur[key] = (info["name"][(role, key)], info["from"])
+    for name, frm in sorted(psur.values(), key=lambda x: -len(x[0])):
+        parts, core = particle_surname(name)
+        rx = re.compile(r"(?<![A-Za-z'’-])(?i:" + r"[ \t]+".join(map(re.escape, parts.split())) + r")[ \t]+(?:" +
+                        "|".join(re.escape(f) for f in {core, core.upper(), "-".join(x.capitalize() for x in core.split("-"))}) +
+                        r")(?![A-Za-z'’-])")  # a name known only in capitals is also looked for in Title case
+        for lid, (d, p, l) in lines.items():
+            text = l.text or ""
+            masked = [(m.start(), m.end()) for k in kept for m in re.finditer(re.escape(k), text)]
+            masked += [(pr.start, pr.end) for pr in by_line.get(lid, [])]
+            for m in rx.finditer(text):
+                s0, e0 = m.span()
+                if any(s0 < me and e0 > ms for ms, me in masked) or _ORG_NEXT.match(text, e0):
+                    continue
+                by_line.setdefault(lid, []).append(Proposal(lid, s0, e0, "SURNAME", text[s0:e0], "propagation", 0.8,
+                                                            None, {"part_of": name, "part_from": sorted(frm)}))
+                masked.append((s0, e0))
+    for w, info in sorted(srcs.items()):
+        if _norm(w) in full or len(info["roles"]) != 1:
+            continue
+        role, key = next(iter(info["roles"]))
+        if role is None or key is None:
+            continue
+        source = info["name"][(role, key)]
+        if role in ("GIVEN", "MIDDLE") and source != w:
+            continue
+        for lid, (d, p, l) in lines.items():
+            text = l.text or ""
+            if w.lower() not in text.lower():
+                continue
+            masked = [(m.start(), m.end()) for k in kept for m in re.finditer(re.escape(k), text)]
+            masked += [(pr.start, pr.end) for pr in by_line.get(lid, [])]
+            spans = standalone_spans(w, text, compound=False)
+            if role == "SURNAME":  # the part inside another hyphenated form ('Vance-Brennecke', 'Ostrander-Vance')
+                spans += [(m.start(), m.end()) for m in _HYPHENATED.finditer(text)
+                          if any(x in (w, w.upper()) for x in m.group().split("-")) and not _ORG_NEXT.match(text, m.end())]
+            for s0, e0 in spans:
+                if any(s0 < me and e0 > ms for ms, me in masked):
+                    continue
+                if w in group_ok and after_determiner(text, s0):
+                    continue
+                by_line.setdefault(lid, []).append(Proposal(lid, s0, e0, PART_KIND[role], text[s0:e0], "propagation", 0.8,
+                                                            None, {"part_of": source, "part_from": sorted(info["from"])}))
+                masked.append((s0, e0))
+
+
+def surname_parts(surname):
+    """'Quintero-Hale' -> ['quintero', 'hale']; a single surname -> []."""
+    parts = [x for x in re.split(r"[-‐‑–]", (surname or "").lower()) if x]
+    return parts if len(parts) > 1 else []
+
+
+def _part_of(short, full):
+    return short != full and short in surname_parts(full)
+
+
+def surname_aliases(occs):
+    """{surname part: full compound surname} for resolved people printed with only part of their compound surname
+    (after resolve_people). A part that is also the own surname of another entity in the case is left alone."""
+    by_ent = {}
+    for o in occs:
+        p = parse_person(o.text) if o.kind == "PERSON" else None
+        if p and p.get("surname"):
+            by_ent.setdefault(o.entity, set()).add(p["surname"].lower())
+    owners = {}
+    for e, ss in by_ent.items():
+        for s in ss:
+            owners.setdefault(s, set()).add(e)
+    out = {}
+    for e, ss in by_ent.items():
+        for s in ss:
+            fulls = sorted(f for f in ss if _part_of(s, f))
+            if len(fulls) == 1 and owners[s] == {e}:
+                out[s] = fulls[0] if out.get(s, fulls[0]) == fulls[0] else None
+    return {k: v for k, v in out.items() if v}
+
+
 def resolve_people(occs):
     people = {}  # (given, surname) -> entity id
     pending = []
@@ -948,14 +1326,30 @@ def resolve_people(occs):
             o.entity = people.setdefault(key, f"person:{len(people) + 1}")
         else:
             pending.append((o, p))
+    # one part of a person's compound surname with the same given name ('Marisol Q. Hale' next to 'Marisol
+    # Quintero-Hale') is that person, when exactly one compound fits
+    own = {s for (g, s) in people}
+    merged = {}
+    for (g, s), e in people.items():
+        if any(_part_of(s, s2) for s2 in own):
+            fulls = sorted({e2 for (g2, s2), e2 in people.items() if g2 == g and _part_of(s, s2)})
+            if len(fulls) == 1:
+                merged[e] = fulls[0]
+    if merged:
+        for o in occs:
+            if o.kind == "PERSON" and o.entity in merged:
+                o.entity = merged[o.entity]
+        people = {k: merged.get(e, e) for k, e in people.items()}
     for o, p in pending:
         if p["form"] == "surname":
-            cands = {e for (g, s), e in people.items() if s == p["surname"].lower()}
+            cands = {e for (g, s), e in people.items() if s == p["surname"].lower()} or \
+                    {e for (g, s), e in people.items() if _part_of(p["surname"].lower(), s)}
             o.entity = next(iter(cands)) if len(cands) == 1 else "surname:" + p["surname"].lower()
             if len(cands) > 1:
                 o.review.append("SURNAME_ONLY_SHARED_BY_MULTIPLE_PEOPLE (replacement coherent: shared fake surname)")
             continue
-        cands = sorted({e for (g, s), e in people.items() if s == p["surname"].lower() and g[0] == p["given"].lower()})
+        cands = sorted({e for (g, s), e in people.items() if s == p["surname"].lower() and g[0] == p["given"].lower()}) or \
+            sorted({e for (g, s), e in people.items() if _part_of(p["surname"].lower(), s) and g[0] == p["given"].lower()})
         if len(cands) == 1:
             o.entity = cands[0]
         else:

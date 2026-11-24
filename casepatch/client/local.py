@@ -34,8 +34,9 @@ def missing_engine_module() -> str | None:
 
 
 class LocalBackend:
-    def __init__(self, verify: bool = True):
+    def __init__(self, verify: bool = True, keep=None):
         self.verify = verify
+        self.keep = list(keep or [])  # terms never replaced (casepatch.keep)
         missing = missing_engine_module()
         if missing:
             raise CasePatchError(f'Local mode needs the local engine: pip install "casepatch[local]" (missing: {missing}).')
@@ -51,7 +52,7 @@ class LocalBackend:
                 if case_key:
                     (tmp / "review").mkdir(mode=0o700)
                     (tmp / "review" / "case.key").write_bytes(case_key)
-                report, docs, occs = self._run(inp, tmp)
+                report, docs, occs = self._run(inp, tmp, {"01_document" + src.suffix.lower(): src.name})
                 outs = sorted(p for p in (tmp / "out").iterdir() if p.name.startswith("document-"))
                 if len(outs) != 1:
                     raise CasePatchError("Local engine produced no output document.")
@@ -77,7 +78,7 @@ class LocalBackend:
                     (tmp / "review").mkdir(mode=0o700)
                     (tmp / "review" / "case.key").write_bytes(case_key)
                 try:
-                    report, docs, occs = self._run(inp, tmp)
+                    report, docs, occs = self._run(inp, tmp, {n: s.name for n, s in staged.items()})
                 except CasePatchError as e:
                     msg = CASE_SPLIT_REFUSED.format(err=e.message)
                     return {src: Result(source=str(src), output=None, mode="local", status="error", error=msg) for src, _ in items}
@@ -97,14 +98,37 @@ class LocalBackend:
             finally:
                 shutil.rmtree(tmp, ignore_errors=True)
 
-    def _run(self, inp, tmp):
+    def _run(self, inp, tmp, names):
+        """`names`: staged file name -> the user's file name, so an engine error names the user's file and never the
+        private staging folder."""
         from casepatch.docs import pipeline
         try:
             report, docs, occs, regions, _ = pipeline.run(inp, tmp / "out", detector="rules", hosted=None,
-                                                          review_dir=tmp / "review", verify=self.verify)
+                                                          review_dir=tmp / "review", verify=self.verify,
+                                                          keep=self.keep)
         except Exception as e:  # engine errors carry codes, not content
-            raise CasePatchError(f"Local engine failed: {type(e).__name__}: {str(e)[:200]}") from None
+            raise CasePatchError(engine_error(e, tmp, names)) from None
         return report, docs, occs
+
+
+def engine_error(e: BaseException, tmp: Path, names: dict) -> str:
+    """A plain one-line message for an engine failure: which of the user's files (when known) and the engine's reason,
+    without exception class names or internal temporary paths."""
+    import re
+    detail = str(e)[:300]
+    which = None
+    for staged, real in names.items():
+        if staged in detail:
+            which = real
+    root = re.escape(str(tmp))
+    detail = re.sub(r"(filename=)?['\"]?" + root + r"[^\s'\"]*['\"]?", "the file", detail)
+    for staged, real in names.items():
+        detail = detail.replace(staged, real)
+    detail = re.sub(r"\s+", " ", detail).strip().rstrip(".")
+    if which is None and len(names) == 1:
+        which = next(iter(names.values()))
+    head = f"{which} could not be processed" if which else "The local engine could not process the files"
+    return f"{head}: {detail}." if detail else f"{head}."
 
 
 class _engine_env:

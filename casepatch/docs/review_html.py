@@ -37,11 +37,18 @@ def build(docs, proposals, decisions, path):
     if cons:  # plausibility / relation problems in the planned replacements (consistency.py)
         from .consistency import explain
         occ_text = {o["id"]: (o["kind"], o["text"] or HIDDEN, o["replacement"] or HIDDEN) for o in proposals["occurrences"]}
-        parts.append("<div style='background:#fff3cd;border:1px solid #e0b000;padding:8px;margin:8px 0'><b>Consistency check: "
-                     f"{len(cons)} planned replacement problem(s)</b><ul>")
+        lines = {}  # one line per distinct problem; the same span repeated across pages/documents is counted, not relisted
         for v in cons:
-            ex = "; ".join(f"{k}: {html.escape(t)} &rarr; {html.escape(r)}" for k, t, r in (occ_text.get(i, ("?", "?", "?")) for i in v["occs"][:3]))
-            parts.append(f"<li>{html.escape(explain(v['code']))} <small>({html.escape(v['code'])})</small> &mdash; {ex}</li>")
+            ex = "; ".join(dict.fromkeys(f"{k}: {html.escape(t)} &rarr; {html.escape(r)}"
+                                         for k, t, r in (occ_text.get(i, ("?", "?", "?")) for i in v["occs"])))
+            key = (v["code"], ex)
+            lines[key] = lines.get(key, 0) + 1
+        parts.append("<div style='background:#fff3cd;border:1px solid #e0b000;padding:8px;margin:8px 0'><b>Consistency check: "
+                     f"{len(lines)} planned replacement problem(s)</b><ul>")
+        for (code, ex), n in lines.items():
+            ex = "; ".join(ex.split("; ")[:3])
+            times = f" <small>(&times;{n})</small>" if n > 1 else ""
+            parts.append(f"<li>{html.escape(explain(code))} <small>({html.escape(code)})</small> &mdash; {ex}{times}</li>")
         parts.append("</ul></div>")
     occ_by_doc = {}
     for o in proposals["occurrences"]:

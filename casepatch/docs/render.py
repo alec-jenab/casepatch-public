@@ -959,9 +959,16 @@ def _render_pdf(doc, occs, regions, out_path, rng, ctx=None):
               redactions=True, redact_images=0, remove_links=True, reset_fields=True, reset_responses=True, thumbnails=True, xml_metadata=True)
     out.set_metadata({})
     out.del_xml_metadata()
+    # embed only the glyphs the page uses: full replacement fonts otherwise add 100-300 KB per font
+    try:
+        out.subset_fonts()
+        subset = True
+    except Exception:  # keep the full fonts rather than fail the document
+        subset = False
     out.save(out_path, garbage=4, deflate=True, clean=True, no_new_id=False)
     log.append({"method": "pdf_rebuilt_fresh", "stripped": ["info_metadata", "xmp", "annotations", "embedded_files", "javascript",
                                                          "links", "form_fields", "thumbnails", "hidden_text"],
+                "fonts_subset": subset,
                 "source_had": {"metadata_fields": len(doc.hidden.get("metadata", {})), "annotations": len(doc.hidden.get("annotations", [])),
                                "embedded_files": len(doc.hidden.get("embedded_files", {})), "javascript": doc.hidden.get("javascript", False)}})
     return log

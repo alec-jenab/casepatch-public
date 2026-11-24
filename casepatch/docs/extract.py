@@ -14,6 +14,9 @@ from .model import Char, Document, Line, Page, quad_bbox, quad_from_rect, rect_i
 RENDER_DPI = 200
 # caption / fragile-line re-OCR is 2x this (400 DPI on a 200 DPI render, or 2x on a scan)
 CAPTION_REFINE_FACTOR = 2
+# a scanned page below RENDER_DPI is read at the scan's own resolution: resampling a scan up by a non-integer factor
+# blurs every glyph and the OCR drops word spaces ('2817QuillfeatherRoad'); very low resolution scans are still upsampled
+SCAN_MIN_NATIVE_DPI = 100
 PDF_EXT, IMG_EXT = {".pdf"}, {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp"}
 _OCR = None
 
@@ -182,6 +185,26 @@ def _render(page, dpi=RENDER_DPI):
     return np.frombuffer(pix.samples, np.uint8).reshape(pix.height, pix.width, 3).copy()
 
 
+def scan_dpi(page):
+    """Render resolution for a scanned page: the resolution of its single full-page scan image when that is between
+    SCAN_MIN_NATIVE_DPI and RENDER_DPI, else RENDER_DPI."""
+    try:
+        ims = page.get_image_info()
+        if len(ims) != 1 or not ims[0].get("width"):
+            return RENDER_DPI
+        x0, y0, x1, y1 = ims[0]["bbox"]
+        r = page.rect
+        if (x1 - x0) * (y1 - y0) < 0.95 * r.width * r.height or page.rotation % 360:
+            return RENDER_DPI
+        dx, dy = ims[0]["width"] / ((x1 - x0) / 72), ims[0]["height"] / ((y1 - y0) / 72)
+        if abs(dx - dy) > 0.02 * max(dx, dy):
+            return RENDER_DPI
+        dpi = round(dx)
+        return dpi if SCAN_MIN_NATIVE_DPI <= dpi < RENDER_DPI else RENDER_DPI
+    except Exception:
+        return RENDER_DPI
+
+
 def native_lines(page, prefix):
     """Group texttrace characters into lines; invisible (render mode 3) or transparent text => native_hidden."""
     runs = []
@@ -242,6 +265,20 @@ def reconcile(page_obj, lines, ocr, prefix):
     return notes
 
 
+def _is_scanned(page, lines, imgs):
+    """(scanned, visible native chars): a page whose pixels are the document (little visible text, a big image)."""
+    visible_chars = sum(len(l.text) for l in lines if l.source == "native")
+    big_img = any((i["bbox"][2] - i["bbox"][0]) * (i["bbox"][3] - i["bbox"][1]) > 0.5 * page.rect.width * page.rect.height for i in imgs)
+    return visible_chars < 20 and big_img, visible_chars
+
+
+def page_units_per_point(page):
+    """Engine coordinates per PDF point for a PyMuPDF page: scanned pages are in page-image pixels (scan_dpi / 72),
+    other pages in points (1.0). Lets a viewer place engine boxes without re-running extraction."""
+    scanned, _ = _is_scanned(page, native_lines(page, "u:"), page.get_image_info())
+    return scan_dpi(page) / 72 if scanned else 1.0
+
+
 def extract_pdf(path, doc_id):
     import pymupdf
     src = pymupdf.open(path)
@@ -256,13 +293,13 @@ def extract_pdf(path, doc_id):
         for a in page.annots():
             d.hidden["annotations"].append({k: v for k, v in a.info.items() if v and k in ("content", "title", "subject")})
         lines = native_lines(page, prefix)
-        visible_chars = sum(len(l.text) for l in lines if l.source == "native")
         imgs = page.get_image_info()
-        big_img = any((i["bbox"][2] - i["bbox"][0]) * (i["bbox"][3] - i["bbox"][1]) > 0.5 * page.rect.width * page.rect.height for i in imgs)
         t1 = time.perf_counter()
-        img = _render(page)
-        scale = RENDER_DPI / 72
-        if visible_chars < 20 and big_img:   # scanned page: pixels are the document
+        scanned, visible_chars = _is_scanned(page, lines, imgs)
+        dpi = scan_dpi(page) if scanned else RENDER_DPI
+        img = _render(page, dpi)
+        scale = dpi / 72
+        if scanned:
             ocr = ocr_lines(img, prefix)
             p = Page(pno, img.shape[1], img.shape[0], True, scale, img, ocr)
             p.notes.append({"code": "SCANNED_PAGE", "native_text_chars": visible_chars})

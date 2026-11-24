@@ -61,7 +61,10 @@ def conflicting_person_names(documents):
 
 
 MODEL_KINDS = {"PERSON": "PERSON", "GPE": "LOCATION", "LOC": "LOCATION", "FAC": "LOCATION", "ORG": "ORGANIZATION"}
-STREET_ADDRESS = re.compile(r"(?<!\w)\d{1,6}[A-Za-z]?\s+(?:[A-Za-z][A-Za-z.\'’-]*\s+){1,6}(?:Street|St|Avenue|Ave|Road|Rd|Lane|Ln|Drive|Dr|Boulevard|Blvd|Court|Ct|Way|Place|Pl|(?-i:Terrace|Ter|Circle|Cir|Parkway|Pkwy|Highway|Hwy|Trail|Trl|Bend|Crescent|Plaza|Ridge|Alley|Hollow|Commons))\b(?:,?\s+(?:Apt|Suite|Unit)\.?\s+[A-Za-z0-9-]+)?(?:,\s+[A-Za-z][A-Za-z .\'’-]{0,60},?\s+[A-Z]{2}\s+\d{5}(?:-\d{4})?)?", re.IGNORECASE)
+# the number must not be the year or day of a date in front of it (a statement row '11/07/2026  Main Street Deli', '2026-11-07 Corwin Hollow', 'Nov 07 Oak Park Grill')
+_NOT_AFTER_DATE = (r"(?<!\d/\d/)(?<!\d/\d\d/)(?<!\d\.\d\d\.)(?<!\d\d-\d\d-)"
+                   r"(?<!\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec) )(?<!\b(?:jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec)\. )(?<!\bsept )(?<!\bsept\. )")
+STREET_ADDRESS = re.compile(_NOT_AFTER_DATE + r"(?<!\w)\d{1,6}[A-Za-z]?\s+(?:[A-Za-z][A-Za-z.\'’-]*\s+){1,6}(?:Street|St|Avenue|Ave|Road|Rd|Lane|Ln|Drive|Dr|Boulevard|Blvd|Court|Ct|Way|Place|Pl|(?-i:Terrace|Ter|Circle|Cir|Parkway|Pkwy|Highway|Hwy|Trail|Trl|Bend|Crescent|Plaza|Ridge|Alley|Hollow|Commons))\b(?:,?\s+(?:Apt|Suite|Unit)\.?\s+[A-Za-z0-9-]+)?(?:,\s+[A-Za-z][A-Za-z .\'’-]{0,60},?\s+[A-Z]{2}\s+\d{5}(?:-\d{4})?)?", re.IGNORECASE)
 RULE_KINDS = {"PAN_LIKE": "CARD", "IPV4": "ID", "ISO_DATE": "DATE"}
 LIMITS = {"documents": 20, "characters": 250_000, "spans": 4000}
 

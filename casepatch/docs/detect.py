@@ -89,18 +89,22 @@ def ground(chunk, line_index, text, kind, detector, confidence=1.0, hint=None):
 
 # ------------------------------------------------------------------ rules
 NAME = r"[A-Z][a-zA-Z'’-]+"
+# lowercase surname particles inside a name ('Ottilie van der Brakel', 'Ana de la Cruz', 'Omar al-Rashid'): a particle
+# run only counts when a capitalised word follows it; in capitals too ('OTTILIE VAN DER BRAKEL')
+NAME_PARTICLE = r"(?i:van|von|de|del|della|der|den|da|di|du|la|le|bin|binti|bint|ibn|abu|al|el|das|dos|do|ter|ten|y)"
+NAME_NEXT = r"(?:[A-Z]\.|(?:" + NAME_PARTICLE + r"\s+){0,3}" + NAME + r"|(?:al|el)-" + NAME + r")"
 NAME_CUE = re.compile(r"(?:\b(?:Name|Cardholder|Reporting party|Customer|Signed by|signed by|Dear|Reporting officer|sister,|brother,|"
                       r"Notice for|Statement for|Prepared for|Patient|Patient name|Beneficiary|Member name|Insured)[:,]?|\bcc:)\s+"
-                      r"((?:(?:Mr|Ms|Mrs|Dr|Ofc)\.\s+)?" + NAME + r"(?:\s+(?:[A-Z]\.|" + NAME + r")){1,2})")
+                      r"((?:(?:Mr|Ms|Mrs|Dr|Ofc)\.\s+)?" + NAME + r"(?:\s+" + NAME_NEXT + r"){1,2})")
 # a person introducing themselves or named as a message's author in prose and chat traces (D3f): 'Hi, this is Corbin
 # Ashgrove', 'My name is ...', 'I'm ...', 'Second note from ...'. Two or three capitalised words; the first must be a
 # known given name (so 'This is Customer Service' / 'a note from Harbor Grocery' are not people)
 SELF_INTRO = re.compile(r"\b(?:[Tt]his is|[Ii]t'?s|I'?m|I am|[Mm]y name is|[Mm]y name's|[Nn]ame's|(?:[Nn]ote|[Mm]essage|[Ee]mail|[Ll]etter|[Cc]all|[Cc]omplaint|[Rr]equest)\s+from|[Ff]rom)\s+(?:(?:Mr|Ms|Mrs|Dr)\.?\s+)?"
-                        r"(" + NAME + r"(?:\s+(?:[A-Z]\.|" + NAME + r")){1,2})")
+                        r"(" + NAME + r"(?:\s+" + NAME_NEXT + r"){1,2})")
 # the payee / payer of a person-to-person payment on a statement row ('ZELLE TO Teodoro Villanueva', 'Venmo from ...',
 # 'Payment to ...'); the first word must be a known given name (so 'PAYMENT TO CHASE CARD' is not a person)
 P2P_NAME = re.compile(r"(?i:\b(?:zelle|venmo|paypal|cash\s?app|wire|transfer|xfer|payment|sent|received|refund)(?:\s+(?:payment|transfer))?\s+(?:to|from))\s+"
-                      r"(" + NAME + r"(?:\s+(?:[A-Z]\.|" + NAME + r")){1,2})")
+                      r"(" + NAME + r"(?:\s+" + NAME_NEXT + r"){1,2})")
 # labelled person fields on forms, claims, statements and records ('Policyholder: Desmond Arkwright', 'Account holder name:
 # Ana Ruiz'). A colon is required: without it these words start ordinary phrases ('Member Services', 'Client Relations')
 PERSON_LABELS = (r"Policy\s?holder|Named insured|Insured(?: person| party)?|Claimant|Beneficiary|Account\s?holder|Card\s?holder|"
@@ -111,7 +115,7 @@ PERSON_LABELS = (r"Policy\s?holder|Named insured|Insured(?: person| party)?|Clai
                  r"Employee record|Employee name|Patient name|Manager|Supervisor|Assignee|Reporter|Representative|Physician|"
                  r"Doctor|Nurse|Attorney|Author|Prepared by|Submitted by|Reviewed by|Approved by|Signed by|Referred by")
 LABELED_NAME = re.compile(r"(?<![\w-])(?i:" + PERSON_LABELS + r")(?:'s)?(?:\s+(?i:full\s+)?(?i:name))?\s*:\s*"
-                          r"((?:(?:Mr|Ms|Mrs|Dr)\.?\s+)?(?:[A-Z]\.\s+" + NAME + r"|" + NAME + r"(?:\s+(?:[A-Z]\.|" + NAME + r")){1,2}))")
+                          r"((?:(?:Mr|Ms|Mrs|Dr)\.?\s+)?(?:[A-Z]\.\s+" + NAME + r"|" + NAME + r"(?:\s+" + NAME_NEXT + r"){1,2}))")
 # a labelled value that is a business, not a person ('Customer: Harbor Grocery', 'Client: Tallow Freight')
 LABEL_ORG_HINT = re.compile(r"\b(?:Bank|Banking|Store|Stores|Market|Mart|Grocery|Pharmacy|Hospital|Clinic|Insurance|Mutual|Assurance|"
                             r"Services?|Group|Freight|Logistics|Holdings|Partners|Associates|Solutions|Systems|Technologies|"
@@ -181,6 +185,15 @@ _ID_NOUN = r"(?:card|visa|mastercard|amex|discover|debit|credit|account|acct|pho
 LAST4 = re.compile(r"(?:\*{3,}[\s*\-]*|ending(?: in| with)?\s+|x{2,}[\s\-]*|last ?(?:4|four)(?: digits)?(?: (?:of|on|for) (?:the |my |your |this |her |his |their )?"
                    r"[A-Za-z]+(?: (?:number|no\.?|#))?)?(?: (?:is|are))?:?\s*|\b" + _ID_NOUN + r"\b[^\n\d]{0,25}?\bends? (?:in|with)\s+)(\d{4})\b", re.I)
 LABEL_LINE = {"NAME": "PERSON", "DOB": "DOB", "ADDRESS": "ADDRESS", "LIC NO": "ID", "DL NO": "ID"}
+_LABEL_KEYS = {re.sub(r"\s+", "", k) for k in LABEL_LINE}
+
+
+def _is_field_label(v):
+    """A line that is itself a field label ('NAME', OCR'd twice or letter-spaced 'AD D R E SS') is not the value of
+    the label above it."""
+    return re.sub(r"[\s:]+", "", v.upper()) in _LABEL_KEYS
+
+
 JSON_FIELD = {"PERSON": "PERSON", "EMAIL": "EMAIL", "PHONE": "PHONE", "CARD": "CARD", "ID": "ID", "ADDRESS": "ADDRESS", "DATE": "DOB"}
 # agent-trace keys that hold a person / a document number (tool results quote documents field by field)
 JSON_PERSON_KEY = re.compile(r"(?:^|_)(?:full_?name|holder(?:_name)?|customer_name|patient_name|member_name|insured_name|"
@@ -279,7 +292,7 @@ class RulesDetector:
             if u.source != "json":
                 self._business(chunk, i, u, v, add)
             prev = chunk.units[i - 1].value.strip().upper() if i else ""
-            if prev in LABEL_LINE and v.strip():
+            if prev in LABEL_LINE and v.strip() and not _is_field_label(v):
                 add(0, len(v), LABEL_LINE[prev], 0.8)
             if prev.rstrip(",") in ("SINCERELY", "REGARDS", "THANK YOU") and re.fullmatch(NAME + r"(?:\s+(?:[A-Z]\.|" + NAME + r")){1,2}", v.strip()):
                 add(0, len(v), "PERSON", 0.8)

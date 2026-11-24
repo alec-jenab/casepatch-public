@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "casepatch"
-version = "0.6.1"
+version = "0.6.2"
 description = "Production data anonymization for AI agent evals: replace identities in PDFs and images, locally or via the CasePatch API"
 readme = "sdk/python/README.md"
 license = "Apache-2.0"

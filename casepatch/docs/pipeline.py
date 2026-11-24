@@ -40,15 +40,20 @@ def hardware():
 
 
 def run(input_dir, out_dir, detector="rules", review_dir=None, decisions_path=None, verify=True, propagate=True,
-        categories=True, category_policy=None, hosted=None, relation_client=None, progress=None, source_uploaded=None):
+        categories=True, category_policy=None, hosted=None, relation_client=None, progress=None, source_uploaded=None,
+        keep=None):
     """`hosted`: an opt-in casepatch.docs.hosted_detect.HostedPageDetector (None = local only, the default). Its
     proposals are cached in the review folder on the first run and reused afterwards (no second call), and values
     only the model found are not applied until the reviewer accepts them (decisions `_accept_text`).
     `source_uploaded`: True when the source files were uploaded to a service that runs this engine (report says so);
     None reads CASEPATCH_SOURCE_UPLOADED (set by the hosted service for its worker).
     `relation_client`: optional BYOK relation proposer for the consistency planner (None = local rules only).
+    `keep`: terms never to replace (list of strings, newline-separated string or casepatch.keep.KeepList): a detected
+    value equal to a kept term, or a whole-word part of one, is left unchanged, not listed, and not flagged as residual.
     `progress`: optional callable(event, detail) for coarse progress: ("start", None), (<stage name>, None) when a
     stage finishes, ("render_doc", (done, total)) per rendered document. Stage names and counts only, never content."""
+    from ..keep import as_keep_list
+    keep = as_keep_list(keep)  # invalid lists fail before any work
     out_dir = Path(out_dir)
     review_dir = Path(review_dir) if review_dir else out_dir.with_name(out_dir.name + ".review")
     if out_dir.exists():
@@ -178,8 +183,19 @@ def run(input_dir, out_dir, detector="rules", review_dir=None, decisions_path=No
     proposals, kept_as_facts = filter_places_and_businesses(docs, proposals)  # D4/A7: places and merchants are facts
     det_info.append({"name": "places-businesses", "learned": False, "dropped": len(kept_as_facts),
                      "kept_as_facts": sorted({(x["text"], x["reason"]) for x in kept_as_facts})})
+    kept_by_user = sorted({pr.text for pr in proposals if keep.covers(pr.text)})
+    if keep:  # the user's keep list wins over every detector (and reviewer additions)
+        n_before = len(proposals)
+        proposals = [pr for pr in proposals if not keep.covers(pr.text)]
+        det_info.append({"name": "keep-list", "learned": False, "terms": len(keep), "dropped": n_before - len(proposals)})
     t = time.perf_counter()
-    occs = R.build_occurrences(docs, proposals, propagate=propagate)
+    from .gazetteer import merchant_texts
+    case_merchants = merchant_texts(docs)  # merchants named like people ('Corwin Hollow'): facts, words not propagated
+    occs = R.build_occurrences(docs, proposals, propagate=propagate,
+                               kept={x["text"] for x in kept_as_facts} | case_merchants)
+    if keep:  # propagated variants of other values that fall on a kept term
+        kept_by_user = sorted(set(kept_by_user) | {o.text for o in occs if keep.covers(o.text)})
+        occs = [o for o in occs if not keep.covers(o.text)]
     digests = DEC.doc_digests(docs)
     DEC.assign_occurrence_ids(occs, digests)  # content-bound: independent of file order and of other proposals
     model_only = HD.model_only_texts(occs) if hosted_info else set()
@@ -274,6 +290,13 @@ def run(input_dir, out_dir, detector="rules", review_dir=None, decisions_path=No
                                                       for t in acc_texts if t)]
         decision_info["additions"] = len(additions)
         decision_info["additions_not_applied"] = missing
+    # a name or street word linked to a full value stays as printed when none of the values it came from is replaced
+    # (the reviewer kept the person or the address)
+    replaced_texts = {o.text for o in occs if decisions.get(o.id) == "accept"}
+    for o in occs:
+        src = (getattr(o, "meta", None) or {}).get("part_from")
+        if src and decisions.get(o.id) == "accept" and not replaced_texts & set(src):
+            decisions[o.id] = "reject"
     (review_dir / "proposals.json").write_text(json.dumps(proposals_out, indent=1, ensure_ascii=False))
     if not decisions_path:
         (review_dir / "decisions.json").write_text(json.dumps(DEC.file_entries(proposals_out, defaults), indent=1, ensure_ascii=False))
@@ -428,12 +451,15 @@ def run(input_dir, out_dir, detector="rules", review_dir=None, decisions_path=No
                              "policy": "relations are checked on original vs replacement; a mismatch already in the source is preserved"}
     consistency_detail = {"planned": planned_violations}
     report["rejected_proposals"] = _count([f"{x['detector']}:{x['reason']}" for x in R.REJECTED])
+    if keep:  # counts only: the terms are the user's own and stay out of the shareable report
+        report["keep_list"] = {"terms": len(keep), "detected_values_kept": len(kept_by_user)}
     if verify:
         t = time.perf_counter()
         all_repl = {o.replacement for o in occs}
         out_texts = {}
-        kept_facts = set(R.KEPT_VALUES) | {x["text"] for x in kept_as_facts}
-        vrep, vdetail = verify_case(docs, outputs, accepted, regions, logs, all_repl, texts=out_texts, kept=kept_facts)
+        kept_facts = set(R.KEPT_VALUES) | {x["text"] for x in kept_as_facts} | case_merchants
+        vrep, vdetail = verify_case(docs, outputs, accepted, regions, logs, all_repl, texts=out_texts, kept=kept_facts,
+                                    keep=keep)
         post = CC.verify_outputs(graph, out_texts, {o.id: o.replacement for o in accepted})
         report["consistency"]["post_edit"] = {"checked": post["checked"], "violations": _count([v["code"] for v in post["violations"]]),
                                               "replacements_not_read_back": len(post["not_found"])}
@@ -448,13 +474,13 @@ def run(input_dir, out_dir, detector="rules", review_dir=None, decisions_path=No
                 vdetail[_id]["edits"] = [{k: v for k, v in e.items() if k not in ("text", "original")} for e in _dl]
         (review_dir / "verification-detail.json").write_text(json.dumps(vdetail, indent=1, ensure_ascii=False, default=_jsonable))
     # likely misses (A6d/D3e/TRUST2): what a run can say about values it may have missed, without listing values
-    handled = {o.text for o in occs} | {x["text"] for x in kept_as_facts}  # proposed (any decision) or kept as a fact
+    handled = {o.text for o in occs} | {x["text"] for x in kept_as_facts} | set(kept_by_user) | set(keep.terms)  # proposed, kept as a fact, or on the keep list
     misses = likely_misses(docs, accepted, report.get("verification") or {}, handled)
     report["likely_misses"] = misses
     for m in misses:
         unresolved.append({"id": None, "doc": m["doc"], "page": m.get("page"), "kind": m.get("kind"), "reasons": ["LIKELY_MISS:" + m["code"]]})
-    report["verification_scope"] = ("residual_original_values counts values CasePatch DETECTED that are still readable in the output "
-                                    "(text layer, objects, OCR of pixels). Values it never detected cannot be checked; "
+    report["verification_scope"] = ("residual_original_values counts values CasePatch DETECTED, and name or street words from them "
+                                    "standing alone, that are still readable in the output (text layer, objects, OCR of pixels). Values it never detected cannot be checked; "
                                     "likely_misses lists structural signs of them.")
     vr = report.get("verification") or {}
     report["gate"] = {"verified": bool(verify),

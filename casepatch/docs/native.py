@@ -610,6 +610,42 @@ def page_style(img, lines):
     return {"family": fam, "group": g, "weight": wt, "lines": len(res), "agree": cnt}
 
 
+TRAILING_PUNCT = re.compile(r"[,.;:!?)\]]+(?=\s|$)")
+
+
+def carry_punct(dk, a1, old_right, new_right, n_chars, line_h):
+    """Columns [p0, p1) of the punctuation ink right after a replaced span (starting at or after column a1, up to
+    n_chars glyph runs) and the shift d (<= 0) that keeps its original gap to the new value's right edge.
+    None when nothing needs moving or the ink does not look like trailing punctuation."""
+    col = (dk > 0.3).any(axis=0)
+    W = len(col)
+    xs = np.where(col[a1:])[0]
+    if not len(xs):
+        return None
+    p0 = a1 + int(xs[0])
+    if p0 - old_right > 0.3 * line_h:
+        return None  # a word space, not glued punctuation
+    x, runs = p0, 0
+    p1 = p0
+    while x < W and runs < n_chars:
+        if col[x]:
+            while x < W and col[x]:
+                x += 1
+            runs += 1; p1 = x
+        else:
+            g = x
+            while x < W and not col[x]:
+                x += 1
+            if x - g > 0.15 * line_h:
+                break
+    if p1 - p0 > 0.6 * line_h * n_chars:
+        return None  # too wide for punctuation
+    d = min(0, int(new_right) - int(old_right))
+    if d > -2 or p0 + d < 0:
+        return None
+    return p0, p1, d
+
+
 def replace_text(img, line_quad, line_text, start, end, replacement, rng, jpeg_q=None, style_cache=None, orig_img=None, protect=None,
                  line_conf=None, span_frac=None):
     """Replace line_text[start:end] (drawn inside line_quad) with `replacement`, in place.
@@ -918,6 +954,20 @@ def replace_text(img, line_quad, line_text, start, end, replacement, rng, jpeg_q
     if cy1 <= cy0 or cx1 <= cx0:
         return None, {"error": "placement_outside"}
     canvas[cy0:cy1, cx0:cx1] = alpha[cy0 - y0:cy1 - y0, cx0 - x0:cx1 - x0]
+    carried = None
+    pm = TRAILING_PUNCT.match(line_text, end) if end < n else None
+    if pm and span_ink.any():
+        # punctuation glued to the span ('Okafor, MD') moves with the new value's right edge, so a narrower value
+        # does not leave the old comma behind: 'Dr. Dirk Vasquez , MD'
+        old_right = a0 + int(np.where(span_ink.any(axis=0))[0].max()) + 1
+        nc = np.where((canvas > 0.2).any(axis=0))[0]
+        carried = carry_punct(dk, a1, old_right, int(nc.max()) + 1 if len(nc) else old_right, len(pm.group(0)), lh * S)
+    if carried:
+        p0, p1, d = carried
+        pd = dk[:, p0:p1]
+        pe = np.zeros_like(er); pe[:, p0:p1] = (pd > 0.08)
+        er |= cv2.dilate(pe, np.ones((3, 3), np.uint8), iterations=max(1, int(round(S * max(1, lh / 14)))))
+        canvas[:, p0 + d:p1 + d] = np.maximum(canvas[:, p0 + d:p1 + d], pd)  # the original glyph shape, shifted
     # back to image space
     erase_img = cv2.warpPerspective(er * 255, Mb, (W, H), flags=cv2.INTER_NEAREST) > 0
     alpha_img = cv2.warpPerspective(canvas, Mb, (W, H), flags=cv2.INTER_LINEAR)

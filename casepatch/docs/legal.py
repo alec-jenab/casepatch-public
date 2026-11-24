@@ -27,6 +27,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from .detect import NOT_NAME_TOKENS, Proposal
+from .gazetteer import BUSINESS as _BUSINESS
 
 LEGAL_CUES = re.compile(r"(?i)\b(?:district court|superior court|circuit court|court of appeals|indictment|grand jury|"
                         r"criminal complaint|complaint|affidavit|subpoena|summons|plaintiffs?|defendants?|petitioners?|"
@@ -668,6 +669,9 @@ def legal_name_proposals(docs):
                 first = _clean((v.split() or [""])[0])
                 if first in ROLE_TITLES:
                     continue
+            # a shop name ('MARLOWE CYCLES') is a kept fact: its last word is not a surname to look for
+            if _BUSINESS.search(v):
+                continue
             v2 = re.sub(r",.*$", "", v) if "," in v else v.split()[-1]  # 'Roberts, Victoria A' -> Roberts
             v2 = v2.strip(".,")
             if len(v2) >= 3 and _clean(v2) not in STOP and _clean(v2) not in given_names():

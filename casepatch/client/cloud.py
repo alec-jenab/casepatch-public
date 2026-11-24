@@ -33,6 +33,8 @@ def urllib_transport(method: str, url: str, headers: dict, body: Optional[bytes]
 
 
 class CloudBackend:
+    keep: list = []  # terms never replaced, sent as X-CasePatch-Keep (set by CasePatch)
+
     def __init__(self, api_key: str, base_url: str, timeout: float = 900.0, poll_interval: float = 1.5,
                  transport: Optional[Transport] = None, request_timeout: float = 120.0, max_retries: int = 4):
         self.key, self.base = api_key, base_url.rstrip("/")
@@ -65,7 +67,7 @@ class CloudBackend:
 
     def submit(self, src: Path, case_key: Optional[str] = None) -> dict[str, Any]:
         return self._call("POST", "/api/v1/anonymize", src.read_bytes(), TYPES.get(src.suffix.lower(), "application/octet-stream"),
-                          extra=_case_header(case_key))
+                          extra=_case_header(case_key, self.keep))
 
     def submit_case(self, files: list[tuple[str, Path]], case_key: Optional[str] = None) -> dict[str, Any]:
         """One case job: every (name, path) in one ZIP, so all documents share one identity map."""
@@ -73,7 +75,7 @@ class CloudBackend:
         with zipfile.ZipFile(b, "w", zipfile.ZIP_DEFLATED) as z:
             for name, path in files:
                 z.write(path, name)
-        return self._call("POST", "/api/v1/anonymize", b.getvalue(), "application/zip", extra=_case_header(case_key))
+        return self._call("POST", "/api/v1/anonymize", b.getvalue(), "application/zip", extra=_case_header(case_key, self.keep))
 
     def job(self, job_id: str) -> dict[str, Any]:
         return self._call("GET", f"/api/v1/jobs/{job_id}")
@@ -168,6 +170,9 @@ class CloudBackend:
             pass
 
 
-def _case_header(case_key: Optional[str]) -> dict:
+def _case_header(case_key: Optional[str], keep=None) -> dict:
     # a header, not a query parameter, so the key never lands in URL logs
-    return {"X-CasePatch-Case-Key": str(case_key)} if case_key else {}
+    h = {"X-CasePatch-Case-Key": str(case_key)} if case_key else {}
+    if keep:  # JSON array with non-ASCII escaped, so any term fits in an HTTP header
+        h["X-CasePatch-Keep"] = json.dumps(list(keep), ensure_ascii=True)
+    return h
